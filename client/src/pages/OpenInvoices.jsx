@@ -3,19 +3,14 @@ import { Link } from "react-router-dom";
 import { invoicesApi } from "../api.js";
 import { formatMoney } from "../util.js";
 
-function statusLabel(s) {
-  if (s === "paid") return <span className="badge badge-ok">Paid</span>;
-  if (s === "partial") return <span className="badge" style={{ background: "#fff3e0", color: "#b45309" }}>Partial</span>;
-  return <span className="badge badge-danger">Unpaid</span>;
-}
-
-export default function Invoices() {
+export default function OpenInvoices() {
   const [list, setList] = useState([]);
   const [err, setErr] = useState("");
 
   useEffect(() => {
+    setErr("");
     invoicesApi
-      .list(100)
+      .open(150)
       .then(setList)
       .catch((e) => setErr(e.message));
   }, []);
@@ -23,22 +18,16 @@ export default function Invoices() {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-        <h1 style={{ margin: 0 }}>Invoices</h1>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          <Link to="/invoices/open" className="btn btn-ghost">
-            Open invoices
-          </Link>
-          <Link to="/invoices/new" className="btn btn-primary">
-            New invoice
-          </Link>
-        </div>
+        <h1 style={{ margin: 0 }}>Open invoices</h1>
+        <Link to="/invoices" className="btn btn-ghost">
+          All invoices
+        </Link>
       </div>
-      <p style={{ color: "var(--muted)", marginTop: "0.5rem", maxWidth: 640 }}>
-        Register every sale with line items. If the customer pays in full (cash or card), no credit is recorded. If something stays
-        unpaid, choose an existing customer so the amount is added to their balance — you can record further payments on their
-        customer page.
+      <p style={{ color: "var(--muted)", marginTop: "0.5rem", maxWidth: 760 }}>
+        Open invoices are invoices where <strong>not all items are delivered</strong> (for example 7/8 delivered).
       </p>
       {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
+
       <div className="card" style={{ marginTop: "1rem" }}>
         <div className="table-wrap">
           <table>
@@ -47,10 +36,9 @@ export default function Invoices() {
                 <th>#</th>
                 <th>Date</th>
                 <th>Customer</th>
-                <th>Total</th>
-                <th>Paid at sale</th>
-                <th>Payment recorded</th>
-                <th>On credit</th>
+                <th>Delivered</th>
+                <th>Delivered value</th>
+                <th>Remaining value</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -68,20 +56,26 @@ export default function Invoices() {
                       <span style={{ color: "var(--muted)" }}>Walk-in</span>
                     )}
                   </td>
-                  <td>{formatMoney(inv.total)}</td>
-                  <td>{formatMoney(inv.paidAtSale)}</td>
                   <td>
-                    {Number(inv.paymentsRecorded) > 0 ? formatMoney(inv.paymentsRecorded) : "—"}
+                    {inv.delivery ? (
+                      <>
+                        {inv.delivery.deliveredCount}/{inv.delivery.totalCount}
+                      </>
+                    ) : (
+                      "—"
+                    )}
                   </td>
-                  <td>{inv.creditAmount > 0 ? formatMoney(inv.creditAmount) : "—"}</td>
-                  <td>{statusLabel(inv.paymentStatus)}</td>
+                  <td>{formatMoney(inv.delivery?.deliveredValue ?? 0)}</td>
+                  <td>{formatMoney(inv.delivery?.remainingValue ?? 0)}</td>
+                  <td>{inv.paymentStatus}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {list.length === 0 && !err && <p style={{ color: "var(--muted)", margin: 0 }}>No invoices yet.</p>}
+        {list.length === 0 && !err && <p style={{ color: "var(--muted)", margin: 0 }}>No open invoices.</p>}
       </div>
     </div>
   );
 }
+

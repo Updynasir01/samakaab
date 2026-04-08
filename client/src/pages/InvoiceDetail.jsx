@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { invoicesApi } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { formatMoney } from "../util.js";
+import { buildInvoiceHtml, printInvoiceFromHtml } from "../invoiceExport.js";
 
 export default function InvoiceDetail() {
   const { id } = useParams();
@@ -23,6 +24,20 @@ export default function InvoiceDetail() {
     try {
       await invoicesApi.remove(id);
       navigate("/invoices");
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  function printDoc(kind) {
+    const html = buildInvoiceHtml(inv, { kind });
+    printInvoiceFromHtml(html);
+  }
+
+  async function toggleDelivered(lineItemId, delivered) {
+    try {
+      const next = await invoicesApi.setLineDelivered(inv._id, lineItemId, delivered);
+      setInv(next);
     } catch (e) {
       setErr(e.message);
     }
@@ -56,7 +71,8 @@ export default function InvoiceDetail() {
       <div className="card" style={{ marginTop: "1rem" }}>
         <p style={{ margin: "0 0 0.5rem" }}>
           <strong>Status:</strong> {inv.paymentStatus} · <strong>Total:</strong> {formatMoney(inv.total)} ·{" "}
-          <strong>Paid at sale:</strong> {formatMoney(inv.paidAtSale)} · <strong>On credit:</strong>{" "}
+          <strong>Paid at sale:</strong> {formatMoney(inv.paidAtSale)} · <strong>Payment recorded:</strong>{" "}
+          {Number(inv.paymentsRecorded) > 0 ? formatMoney(inv.paymentsRecorded) : "—"} · <strong>On credit:</strong>{" "}
           {inv.creditAmount > 0 ? formatMoney(inv.creditAmount) : "—"}
         </p>
         {inv.customer ? (
@@ -79,22 +95,48 @@ export default function InvoiceDetail() {
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>
+        <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Print</h2>
+        <p style={{ margin: "0.25rem 0 0.75rem", color: "var(--muted)", fontSize: "0.9rem", maxWidth: 720 }}>
+          Invoice shows prices and totals. Delivery note hides prices and totals (quantities only).
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-primary" onClick={() => printDoc("invoice")}>
+            Print invoice
+          </button>
+          <button type="button" className="btn" onClick={() => printDoc("delivery")}>
+            Print delivery note
+          </button>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: "1rem" }}>
         <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Line items</h2>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
+                <th>Delivered</th>
                 <th>Description</th>
                 <th>Qty</th>
                 <th>Unit</th>
+                <th>Unit price</th>
                 <th>Line total</th>
               </tr>
             </thead>
             <tbody>
               {inv.lineItems.map((row, i) => (
                 <tr key={i}>
+                  <td style={{ textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={row.delivered === true}
+                      onChange={(e) => toggleDelivered(row._id, e.target.checked)}
+                      title="Mark item delivered"
+                    />
+                  </td>
                   <td>{row.description}</td>
                   <td>{row.quantity}</td>
+                  <td>{row.unit || "—"}</td>
                   <td>{formatMoney(row.unitPrice)}</td>
                   <td>{formatMoney(row.lineTotal)}</td>
                 </tr>
@@ -103,6 +145,16 @@ export default function InvoiceDetail() {
           </table>
         </div>
       </div>
+
+      {inv.delivery && (
+        <div className="card" style={{ marginTop: "1rem", background: "var(--bg-soft)" }}>
+          <p style={{ margin: 0 }}>
+            <strong>Delivered:</strong> {inv.delivery.deliveredCount}/{inv.delivery.totalCount} ·{" "}
+            <strong>Delivered value:</strong> {formatMoney(inv.delivery.deliveredValue)} · <strong>Remaining value:</strong>{" "}
+            {formatMoney(inv.delivery.remainingValue)}
+          </p>
+        </div>
+      )}
 
       {inv.creditAmount > 0 && inv.customer && (
         <div className="card" style={{ marginTop: "1rem", background: "#f0faf6", borderColor: "var(--accent-dim)" }}>

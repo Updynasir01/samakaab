@@ -33,10 +33,43 @@ router.get("/summary", async (_req, res) => {
     .populate("customer", "fullName phone")
     .lean();
 
+  // For overdue credits that are linked to invoices, compute remaining per-invoice so we
+  // don't alert on credits already fully paid via invoice-linked payments.
+  const overdueInvoiceIds = overdueCredits
+    .map((cr) => cr.invoice)
+    .filter(Boolean);
+  const paidByInvoiceAgg = overdueInvoiceIds.length
+    ? await PaymentEntry.aggregate([
+        { $match: { invoice: { $in: overdueInvoiceIds } } },
+        { $group: { _id: "$invoice", total: { $sum: "$amount" } } },
+      ])
+    : [];
+  const paidByInvoice = new Map(paidByInvoiceAgg.map((r) => [String(r._id), r.total || 0]));
+
   for (const cr of overdueCredits) {
     const custId = String(cr.customer._id || cr.customer);
     const bal = balances.get(custId);
     if (!bal || bal.balance <= 0) continue;
+
+    // If this credit entry is tied to an invoice, show it only if that invoice still has remaining unpaid amount.
+    // (Payments must be linked to the invoice to count here.)
+    const EPS = 0.005;
+    if (cr.invoice) {
+      const paid = paidByInvoice.get(String(cr.invoice)) || 0;
+      const remaining = Math.max(0, (cr.amount || 0) - paid);
+      if (remaining <= EPS) continue;
+      overdue.push({
+        creditId: cr._id,
+        customerId: cr.customer._id,
+        customerName: cr.customer.fullName,
+        phone: cr.customer.phone,
+        expectedPayDate: cr.expectedPayDate,
+        description: cr.description,
+        amount: remaining,
+        message: `Customer ${cr.customer.fullName} should have paid by ${cr.expectedPayDate.toISOString().slice(0, 10)} — please follow up.`,
+      });
+      continue;
+    }
     overdue.push({
       creditId: cr._id,
       customerId: cr.customer._id,

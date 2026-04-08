@@ -4,8 +4,11 @@ const lineItemSchema = new mongoose.Schema(
   {
     description: { type: String, required: true, trim: true },
     quantity: { type: Number, required: true, min: 0 },
+    unit: { type: String, trim: true, default: "" },
     unitPrice: { type: Number, required: true, min: 0 },
     lineTotal: { type: Number, required: true, min: 0 },
+    delivered: { type: Boolean, default: false },
+    deliveredAt: { type: Date, default: null },
   },
   { _id: true }
 );

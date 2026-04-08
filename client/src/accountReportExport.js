@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import { formatMoney, safeFileSegment } from "./util.js";
+import { COMPANY } from "./companyProfile.js";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -47,9 +48,13 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
 </head>
 <body>
   <h1>${escapeHtml(customer.fullName)}</h1>
-  <p class="meta">Samakaab Supermarket${customer.phone ? ` · ${escapeHtml(customer.phone)}` : ""} · ${escapeHtml(
-    new Date().toLocaleDateString()
-  )}</p>
+  <p class="meta">
+    ${escapeHtml(COMPANY.legalName)}${customer.phone ? ` · ${escapeHtml(customer.phone)}` : ""} · ${escapeHtml(new Date().toLocaleDateString())}<br/>
+    ${escapeHtml((COMPANY.addressLines || []).join(" · "))}<br/>
+    ${COMPANY.phone ? `Phone: ${escapeHtml(COMPANY.phone)}` : ""}${COMPANY.phone && COMPANY.email ? " · " : ""}${
+      COMPANY.email ? `Email: ${escapeHtml(COMPANY.email)}` : ""
+    }
+  </p>
   <p class="note">All money lines in date order. <strong>Dis</strong>: <em>Credit</em> (amount put on account), <em>Payment recorded</em> (Add payment), <em>At sale pay</em> (cash on invoice when sold). Amounts in the totals below match the table.</p>
   <table>
     <thead>
@@ -109,11 +114,15 @@ export function downloadAccountReportPdf(customer, rows, totals) {
   y += 6;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  const meta = ["Samakaab Supermarket", customer.phone ? `Phone: ${customer.phone}` : null, `Generated: ${new Date().toLocaleDateString()}`]
-    .filter(Boolean)
-    .join(" · ");
-  doc.text(meta, m, y);
-  y += 5;
+  const metaLines = [
+    COMPANY.legalName,
+    (COMPANY.addressLines || []).join(" · "),
+    [COMPANY.phone ? `Phone: ${COMPANY.phone}` : null, COMPANY.email ? `Email: ${COMPANY.email}` : null].filter(Boolean).join(" · "),
+    customer.phone ? `Customer phone: ${customer.phone}` : null,
+    `Generated: ${new Date().toLocaleDateString()}`,
+  ].filter((x) => x && String(x).trim().length);
+  doc.text(metaLines, m, y);
+  y += metaLines.length * 4 + 1;
   doc.setFontSize(8);
   const noteLines = doc.splitTextToSize(
     "All money lines in date order. Dis: Credit (amount put on account), Payment recorded (Add payment), At sale pay (cash on invoice when sold).",

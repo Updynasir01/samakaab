@@ -75,8 +75,11 @@ export const reportsApi = {
 
 export const invoicesApi = {
   list: (limit) => api(`/invoices${limit ? `?limit=${limit}` : ""}`),
+  open: (limit) => api(`/invoices/open${limit ? `?limit=${limit}` : ""}`),
   byCustomer: (customerId) => api(`/invoices/customer/${customerId}`),
   get: (id) => api(`/invoices/${id}`),
   create: (body) => api("/invoices", { method: "POST", body: JSON.stringify(body) }),
+  setLineDelivered: (id, lineItemId, delivered) =>
+    api(`/invoices/${id}/delivery`, { method: "PATCH", body: JSON.stringify({ lineItemId, delivered }) }),
   remove: (id) => api(`/invoices/${id}`, { method: "DELETE" }),
 };

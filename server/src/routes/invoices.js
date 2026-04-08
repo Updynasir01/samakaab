@@ -25,6 +25,21 @@ async function nextInvoiceNumber() {
   return (last?.invoiceNumber || 0) + 1;
 }
 
+/** Sum of PaymentEntry amounts linked to each invoice (record payment / full pay flows). */
+async function attachPaymentsRecordedToInvoices(list) {
+  if (!list.length) return list;
+  const ids = list.map((i) => i._id);
+  const agg = await PaymentEntry.aggregate([
+    { $match: { invoice: { $in: ids } } },
+    { $group: { _id: "$invoice", total: { $sum: "$amount" } } },
+  ]);
+  const map = new Map(agg.map((a) => [String(a._id), round2(a.total)]));
+  for (const inv of list) {
+    inv.paymentsRecorded = map.get(String(inv._id)) ?? 0;
+  }
+  return list;
+}
+
 router.get(
   "/",
   query("limit").optional().isInt({ min: 1, max: 200 }),
@@ -35,6 +50,8 @@ router.get(
       .sort({ date: -1, invoiceNumber: -1 })
       .limit(limit)
       .lean();
+    await attachPaymentsRecordedToInvoices(list);
+    attachDeliverySummaryToInvoices(list);
     res.json(list);
   }
 );
@@ -46,23 +63,32 @@ router.get("/customer/:customerId", async (req, res) => {
   const list = await Invoice.find({ customer: req.params.customerId })
     .sort({ date: -1 })
     .lean();
+  await attachPaymentsRecordedToInvoices(list);
+  attachDeliverySummaryToInvoices(list);
   res.json(list);
 });
 
-router.get("/:id", async (req, res) => {
-  if (!mongoose.isValidObjectId(req.params.id)) {
-    return res.status(400).json({ message: "Invalid id" });
+function attachDeliverySummaryToInvoices(list) {
+  for (const inv of list) {
+    const items = Array.isArray(inv.lineItems) ? inv.lineItems : [];
+    const totalCount = items.length;
+    const deliveredCount = items.filter((li) => li?.delivered === true).length;
+    const deliveredValue = round2(
+      items.reduce((s, li) => s + (li?.delivered === true ? Number(li?.lineTotal || 0) : 0), 0)
+    );
+    const totalValue = round2(items.reduce((s, li) => s + Number(li?.lineTotal || 0), 0));
+    const remainingValue = round2(Math.max(0, totalValue - deliveredValue));
+    inv.delivery = { deliveredCount, totalCount, deliveredValue, remainingValue };
   }
-  const inv = await Invoice.findById(req.params.id).populate("customer", "fullName phone address notes").lean();
-  if (!inv) return res.status(404).json({ message: "Invoice not found" });
-  res.json(inv);
-});
+  return list;
+}
 
 router.post(
   "/",
   body("lineItems").isArray({ min: 1 }),
   body("lineItems.*.description").trim().notEmpty(),
   body("lineItems.*.quantity").isFloat({ min: 0 }),
+  body("lineItems.*.unit").optional().trim(),
   body("lineItems.*.unitPrice").isFloat({ min: 0 }),
   body("date").isISO8601(),
   body("paidAtSale").optional().isFloat({ min: 0 }),
@@ -89,8 +115,11 @@ router.post(
       return {
         description: String(li.description).trim(),
         quantity,
+        unit: String(li.unit || "").trim(),
         unitPrice,
         lineTotal,
+        delivered: false,
+        deliveredAt: null,
       };
     });
 
@@ -188,7 +217,68 @@ router.post(
     }
 
     const populated = await Invoice.findById(inv._id).populate("customer", "fullName phone").lean();
+    await attachPaymentsRecordedToInvoices([populated]);
+    attachDeliverySummaryToInvoices([populated]);
     res.status(201).json(populated);
+  }
+);
+
+router.get(
+  "/open",
+  query("limit").optional().isInt({ min: 1, max: 200 }),
+  async (req, res) => {
+    const limit = Number(req.query.limit) || 100;
+    const list = await Invoice.find({
+      lineItems: { $elemMatch: { delivered: { $ne: true } } },
+    })
+      .populate("customer", "fullName phone")
+      .sort({ date: -1, invoiceNumber: -1 })
+      .limit(limit)
+      .lean();
+    await attachPaymentsRecordedToInvoices(list);
+    attachDeliverySummaryToInvoices(list);
+    res.json(list);
+  }
+);
+
+router.get("/:id", async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: "Invalid id" });
+  }
+  const inv = await Invoice.findById(req.params.id).populate("customer", "fullName phone address notes").lean();
+  if (!inv) return res.status(404).json({ message: "Invoice not found" });
+  await attachPaymentsRecordedToInvoices([inv]);
+  attachDeliverySummaryToInvoices([inv]);
+  res.json(inv);
+});
+
+router.patch(
+  "/:id/delivery",
+  body("lineItemId").isString().notEmpty(),
+  body("delivered").isBoolean(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: "Invalid input", errors: errors.array() });
+    }
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "Invalid id" });
+    }
+    const inv = await Invoice.findById(req.params.id);
+    if (!inv) return res.status(404).json({ message: "Invoice not found" });
+
+    const { lineItemId, delivered } = req.body;
+    const li = inv.lineItems.id(lineItemId);
+    if (!li) return res.status(404).json({ message: "Line item not found" });
+
+    li.delivered = Boolean(delivered);
+    li.deliveredAt = li.delivered ? new Date() : null;
+    await inv.save();
+
+    const out = await Invoice.findById(inv._id).populate("customer", "fullName phone address notes").lean();
+    await attachPaymentsRecordedToInvoices([out]);
+    attachDeliverySummaryToInvoices([out]);
+    res.json(out);
   }
 );
 

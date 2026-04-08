@@ -35,9 +35,7 @@ export default function Layout() {
             justifyContent: "space-between",
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>
-            Samakaab <span style={{ color: "var(--muted)", fontWeight: 500 }}>Credit</span>
-          </div>
+          <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>Samakaab</div>
           <nav style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}>
             <NavLink to="/" style={navStyle} end>
               Dashboard
@@ -47,6 +45,9 @@ export default function Layout() {
             </NavLink>
             <NavLink to="/invoices" style={navStyle}>
               Invoices
+            </NavLink>
+            <NavLink to="/invoices/open" style={navStyle}>
+              Open invoices
             </NavLink>
             <NavLink to="/reports" style={navStyle}>
               Reports

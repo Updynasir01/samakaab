@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { jsPDF } from "jspdf";
 import { reportsApi } from "../api.js";
 import { formatMoney } from "../util.js";
+import { COMPANY } from "../companyProfile.js";
 
 export default function Reports() {
   const now = new Date();
@@ -34,7 +35,7 @@ export default function Reports() {
     const doc = new jsPDF();
     let y = 14;
     doc.setFontSize(16);
-    doc.text("Samakaab Supermarket — Monthly report", 14, y);
+    doc.text(`${COMPANY.legalName} — Monthly report`, 14, y);
     y += 8;
     doc.setFontSize(10);
     doc.text(`Period: ${monthly.period.label}`, 14, y);
@@ -84,7 +85,7 @@ export default function Reports() {
     const doc = new jsPDF();
     let y = 14;
     doc.setFontSize(16);
-    doc.text("Samakaab Supermarket — Yearly report", 14, y);
+    doc.text(`${COMPANY.legalName} — Yearly report`, 14, y);
     y += 8;
     doc.setFontSize(10);
     doc.text(`Year: ${yearly.year}`, 14, y);

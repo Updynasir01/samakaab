@@ -10,6 +10,7 @@ import Settings from "./pages/Settings.jsx";
 import Invoices from "./pages/Invoices.jsx";
 import InvoiceForm from "./pages/InvoiceForm.jsx";
 import InvoiceDetail from "./pages/InvoiceDetail.jsx";
+import OpenInvoices from "./pages/OpenInvoices.jsx";
 import Debtors from "./pages/Debtors.jsx";
 
 function PrivateRoute({ children }) {
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="customers/:id" element={<CustomerDetail />} />
         <Route path="invoices" element={<Outlet />}>
           <Route index element={<Invoices />} />
+          <Route path="open" element={<OpenInvoices />} />
           <Route path="new" element={<InvoiceForm />} />
           <Route path=":id" element={<InvoiceDetail />} />
         </Route>
