@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { customersApi, invoicesApi } from "../api.js";
 import { formatMoney, todayISO } from "../util.js";
+import { parseInvoiceFile } from "../parseInvoiceSpreadsheet.js";
 
 function round2(n) {
   return Math.round(Number(n) * 100) / 100;
@@ -18,8 +19,9 @@ export default function InvoiceForm() {
   const [expectedPayDate, setExpectedPayDate] = useState(todayISO());
   const [paidAtSale, setPaidAtSale] = useState("");
   const [note, setNote] = useState("");
-  const [items, setItems] = useState([{ description: "", quantity: "1", unitPrice: "" }]);
+  const [items, setItems] = useState([{ description: "", quantity: "1", unit: "", unitPrice: "" }]);
   const [err, setErr] = useState("");
+  const [uploadHint, setUploadHint] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export default function InvoiceForm() {
   const creditPreview = round2(total - paidNum);
 
   function addRow() {
-    setItems([...items, { description: "", quantity: "1", unitPrice: "" }]);
+    setItems([...items, { description: "", quantity: "1", unit: "", unitPrice: "" }]);
   }
 
   function updateRow(i, field, value) {
@@ -48,6 +50,32 @@ export default function InvoiceForm() {
   function removeRow(i) {
     if (items.length <= 1) return;
     setItems(items.filter((_, j) => j !== i));
+  }
+
+  async function onUploadSpreadsheet(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setErr("");
+    setUploadHint("");
+    try {
+      const { lines, warnings, skippedRows } = await parseInvoiceFile(file);
+      setItems(
+        lines.map((l) => ({
+          description: l.description,
+          quantity: String(l.quantity),
+          unit: l.unit || "",
+          unitPrice: String(l.unitPrice),
+        }))
+      );
+      const parts = [];
+      if (warnings.length) parts.push(warnings.slice(0, 5).join(" "));
+      if (warnings.length > 5) parts.push(`…and ${warnings.length - 5} more warnings.`);
+      if (skippedRows) parts.push(`${skippedRows} row(s) skipped.`);
+      setUploadHint(parts.join(" ") || `Loaded ${lines.length} line(s).`);
+    } catch (x) {
+      setErr(x.message || "Could not read file");
+    }
   }
 
   async function onSubmit(e) {
@@ -71,6 +99,7 @@ export default function InvoiceForm() {
       const lineItems = items.map((row, i) => ({
         description: row.description.trim(),
         quantity: round2(row.quantity),
+        unit: String(row.unit || "").trim(),
         unitPrice: round2(row.unitPrice),
       }));
       if (lineItems.some((l) => !l.description || l.quantity < 0 || l.unitPrice < 0)) {
@@ -133,13 +162,25 @@ export default function InvoiceForm() {
         </div>
 
         <h2 style={{ fontSize: "1.05rem", margin: "0 0 0.5rem" }}>Line items</h2>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" }}>
+          <label className="btn" style={{ margin: 0, cursor: "pointer" }}>
+            Upload spreadsheet
+            <input type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={onUploadSpreadsheet} />
+          </label>
+        </div>
+        {uploadHint && (
+          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0 0 0.75rem" }}>
+            {uploadHint}
+          </p>
+        )}
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Description</th>
-                <th style={{ width: 100 }}>Qty</th>
-                <th style={{ width: 120 }}>Unit price</th>
+                <th style={{ width: 88 }}>Qty</th>
+                <th style={{ width: 88 }}>Unit</th>
+                <th style={{ width: 110 }}>Unit price</th>
                 <th style={{ width: 100 }}>Line total</th>
                 <th style={{ width: 60 }} />
               </tr>
@@ -162,6 +203,13 @@ export default function InvoiceForm() {
                       step="any"
                       value={row.quantity}
                       onChange={(e) => updateRow(i, "quantity", e.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={row.unit || ""}
+                      onChange={(e) => updateRow(i, "unit", e.target.value)}
+                      placeholder="BOX"
                     />
                   </td>
                   <td>

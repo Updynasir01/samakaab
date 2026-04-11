@@ -73,6 +73,11 @@ export const reportsApi = {
   yearly: (year) => api(`/reports/yearly?year=${year}`),
 };
 
+export const settingsApi = {
+  getCompany: () => api("/settings/company"),
+  updateCompany: (body) => api("/settings/company", { method: "PATCH", body: JSON.stringify(body) }),
+};
+
 export const invoicesApi = {
   list: (limit) => api(`/invoices${limit ? `?limit=${limit}` : ""}`),
   open: (limit) => api(`/invoices/open${limit ? `?limit=${limit}` : ""}`),

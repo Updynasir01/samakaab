@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import { formatMoney, safeFileSegment } from "./util.js";
-import { COMPANY } from "./companyProfile.js";
+import { DEFAULT_COMPANY } from "./companyProfile.js";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -13,8 +13,10 @@ function escapeHtml(s) {
 /**
  * HTML for Word (.doc), print preview, same layout as PDF.
  * No "Account report" title — customer name + statement wording only.
+ * @param {object} company - from useCompanyProfile().profile
  */
-export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayments, balance }) {
+export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayments, balance }, company = DEFAULT_COMPANY) {
+  const c = company || DEFAULT_COMPANY;
   const invCell = (r) => (r.invoiceNum != null ? `#${r.invoiceNum}` : "—");
   const rowHtml = rows
     .map(
@@ -49,11 +51,9 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
 <body>
   <h1>${escapeHtml(customer.fullName)}</h1>
   <p class="meta">
-    ${escapeHtml(COMPANY.legalName)}${customer.phone ? ` · ${escapeHtml(customer.phone)}` : ""} · ${escapeHtml(new Date().toLocaleDateString())}<br/>
-    ${escapeHtml((COMPANY.addressLines || []).join(" · "))}<br/>
-    ${COMPANY.phone ? `Phone: ${escapeHtml(COMPANY.phone)}` : ""}${COMPANY.phone && COMPANY.email ? " · " : ""}${
-      COMPANY.email ? `Email: ${escapeHtml(COMPANY.email)}` : ""
-    }
+    ${escapeHtml(c.legalName)}${customer.phone ? ` · ${escapeHtml(customer.phone)}` : ""} · ${escapeHtml(new Date().toLocaleDateString())}<br/>
+    ${escapeHtml((c.addressLines || []).join(" · "))}<br/>
+    ${c.phone ? `Phone: ${escapeHtml(c.phone)}` : ""}${c.phone && c.email ? " · " : ""}${c.email ? `Email: ${escapeHtml(c.email)}` : ""}
   </p>
   <p class="note">All money lines in date order. <strong>Dis</strong>: <em>Credit</em> (amount put on account), <em>Payment recorded</em> (Add payment), <em>At sale pay</em> (cash on invoice when sold). Amounts in the totals below match the table.</p>
   <table>
@@ -81,8 +81,8 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
 </html>`;
 }
 
-export function downloadAccountReportWord(customer, rows, totals) {
-  const html = buildAccountReportHtml(customer, rows, totals);
+export function downloadAccountReportWord(customer, rows, totals, company) {
+  const html = buildAccountReportHtml(customer, rows, totals, company);
   const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -103,7 +103,8 @@ export function printAccountReportFromHtml(html) {
   }, 300);
 }
 
-export function downloadAccountReportPdf(customer, rows, totals) {
+export function downloadAccountReportPdf(customer, rows, totals, company = DEFAULT_COMPANY) {
+  const c = company || DEFAULT_COMPANY;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const m = 12;
@@ -115,9 +116,9 @@ export function downloadAccountReportPdf(customer, rows, totals) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   const metaLines = [
-    COMPANY.legalName,
-    (COMPANY.addressLines || []).join(" · "),
-    [COMPANY.phone ? `Phone: ${COMPANY.phone}` : null, COMPANY.email ? `Email: ${COMPANY.email}` : null].filter(Boolean).join(" · "),
+    c.legalName,
+    (c.addressLines || []).join(" · "),
+    [c.phone ? `Phone: ${c.phone}` : null, c.email ? `Email: ${c.email}` : null].filter(Boolean).join(" · "),
     customer.phone ? `Customer phone: ${customer.phone}` : null,
     `Generated: ${new Date().toLocaleDateString()}`,
   ].filter((x) => x && String(x).trim().length);

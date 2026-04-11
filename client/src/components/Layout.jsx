@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
+import { useCompanyProfile } from "../companySettings.jsx";
 
 const navStyle = ({ isActive }) => ({
   color: isActive ? "var(--text)" : "var(--muted)",
@@ -10,6 +12,11 @@ const navStyle = ({ isActive }) => ({
 
 export default function Layout() {
   const { user, logout, isAdmin } = useAuth();
+  const { profile } = useCompanyProfile();
+
+  useEffect(() => {
+    document.title = profile.systemTitle || "Samakaab";
+  }, [profile.systemTitle]);
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -35,7 +42,7 @@ export default function Layout() {
             justifyContent: "space-between",
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>Samakaab</div>
+          <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{profile.brandName}</div>
           <nav style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}>
             <NavLink to="/" style={navStyle} end>
               Dashboard
@@ -73,7 +80,7 @@ export default function Layout() {
         <Outlet />
       </main>
       <footer style={{ padding: "1rem", textAlign: "center", color: "var(--muted)", fontSize: "0.85rem" }}>
-        Samakaab Supermarket — customer credit management
+        {profile.legalName} — customer credit management
       </footer>
     </div>
   );

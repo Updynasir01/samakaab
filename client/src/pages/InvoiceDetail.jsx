@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { invoicesApi } from "../api.js";
 import { useAuth } from "../auth.jsx";
+import { useCompanyProfile } from "../companySettings.jsx";
 import { formatMoney } from "../util.js";
 import { buildInvoiceHtml, printInvoiceFromHtml } from "../invoiceExport.js";
 
@@ -9,6 +10,7 @@ export default function InvoiceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
+  const { profile } = useCompanyProfile();
   const [inv, setInv] = useState(null);
   const [err, setErr] = useState("");
 
@@ -30,7 +32,7 @@ export default function InvoiceDetail() {
   }
 
   function printDoc(kind) {
-    const html = buildInvoiceHtml(inv, { kind });
+    const html = buildInvoiceHtml(inv, { kind, company: profile });
     printInvoiceFromHtml(html);
   }
 

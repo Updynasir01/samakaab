@@ -9,12 +9,13 @@ import paymentRoutes from "./routes/payments.js";
 import reportRoutes from "./routes/reports.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import invoiceRoutes from "./routes/invoices.js";
+import settingsRoutes from "./routes/settings.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/customers", customerRoutes);
@@ -23,6 +24,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/invoices", invoiceRoutes);
+app.use("/api/settings", settingsRoutes);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, name: "Samakaab Supermarket API" });

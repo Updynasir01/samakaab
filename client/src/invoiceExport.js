@@ -1,5 +1,5 @@
 import { formatMoney, safeFileSegment } from "./util.js";
-import { COMPANY } from "./companyProfile.js";
+import { DEFAULT_COMPANY } from "./companyProfile.js";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -9,16 +9,26 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-export function buildInvoiceHtml(inv, { kind }) {
+function safeLogoHtml(company) {
+  const u = company?.logoDataUrl;
+  if (typeof u !== "string" || u.length > 800000) return "";
+  if (!/^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.test(u)) return "";
+  return `<img src="${u.replace(/"/g, "")}" alt="" style="max-height:56px;max-width:140px;object-fit:contain" />`;
+}
+
+export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
+  const company = companyIn || DEFAULT_COMPANY;
   const isDelivery = kind === "delivery";
   const title = isDelivery ? "Delivery Note" : "Invoice";
-  const docTitle = `${COMPANY.brandName} — ${title} #${inv.invoiceNumber ?? ""}`.trim();
+  const docTitle = `${company.brandName} — ${title} #${inv.invoiceNumber ?? ""}`.trim();
 
   const dateStr = inv?.date ? new Date(inv.date).toLocaleString() : "";
   const customerName = inv?.customer?.fullName || "Walk-in";
   const customerPhone = inv?.customer?.phone || "";
   const customerAddress = inv?.customer?.address || "";
   const note = inv?.note || "";
+
+  const logoBlock = safeLogoHtml(company);
 
   const rows = (inv.lineItems || [])
     .map((li, idx) => {
@@ -61,14 +71,13 @@ export function buildInvoiceHtml(inv, { kind }) {
   body { font-family: 'Segoe UI', Arial, sans-serif; color: #111827; margin: 0; font-size: 11pt; }
   .wrap { padding: 0; }
   .top { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+  .brandRow { display: flex; gap: 12px; align-items: flex-start; }
   .brand h1 { margin: 0; font-size: 18pt; letter-spacing: 0.2px; }
   .brand .sub { margin: 2px 0 0 0; color: #6b7280; font-size: 10pt; line-height: 1.25; }
   .docTitle { text-align: right; }
   .docTitle h2 { margin: 0; font-size: 22pt; letter-spacing: 1px; }
   .docTitle .meta { margin: 6px 0 0 0; color: #374151; font-size: 10pt; line-height: 1.35; }
   .bar { height: 3px; background: #0ea5e9; margin: 10px 0 12px; }
-  .companyRight { text-align: right; color: #111827; font-size: 9.5pt; line-height: 1.35; }
-  .companyRight .muted { color: #6b7280; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 10px; }
   .box { border: 1px solid #d1d5db; border-radius: 8px; padding: 10px 12px; }
   .box .label { font-size: 9pt; color: #6b7280; font-weight: 600; margin-bottom: 6px; }
@@ -91,10 +100,15 @@ export function buildInvoiceHtml(inv, { kind }) {
   <div class="wrap">
     <div class="top">
       <div class="brand">
-        <h1>${escapeHtml(COMPANY.legalName)}</h1>
-        <p class="sub">${escapeHtml((COMPANY.addressLines || []).join(" · "))}</p>
-        ${COMPANY.phone ? `<p class="sub">Phone: ${escapeHtml(COMPANY.phone)}</p>` : ""}
-        ${COMPANY.email ? `<p class="sub">Email: ${escapeHtml(COMPANY.email)}</p>` : ""}
+        <div class="brandRow">
+          ${logoBlock}
+          <div>
+            <h1>${escapeHtml(company.legalName)}</h1>
+            <p class="sub">${escapeHtml((company.addressLines || []).join(" · "))}</p>
+            ${company.phone ? `<p class="sub">Phone: ${escapeHtml(company.phone)}</p>` : ""}
+            ${company.email ? `<p class="sub">Email: ${escapeHtml(company.email)}</p>` : ""}
+          </div>
+        </div>
       </div>
       <div class="docTitle">
         <h2>${escapeHtml(title.toUpperCase())}</h2>
@@ -153,18 +167,18 @@ export function buildInvoiceHtml(inv, { kind }) {
     }
 
     ${
-      COMPANY.bank
+      company.bank
         ? `<div class="grid" style="margin-top:12px">
       <div class="box">
-        <div class="label">${escapeHtml(COMPANY.bank.title || "Bank transfer")}</div>
-        <div class="muted"><strong>Bank Name:</strong> ${escapeHtml(COMPANY.bank.bankName || "")}</div>
-        <div class="muted"><strong>Account Name:</strong> ${escapeHtml(COMPANY.bank.accountName || "")}</div>
-        <div class="muted"><strong>Account Number:</strong> ${escapeHtml(COMPANY.bank.accountNumber || "")}</div>
-        <div class="muted"><strong>Swift Code:</strong> ${escapeHtml(COMPANY.bank.swiftCode || "")}</div>
+        <div class="label">${escapeHtml(company.bank.title || "Bank transfer")}</div>
+        <div class="muted"><strong>Bank Name:</strong> ${escapeHtml(company.bank.bankName || "")}</div>
+        <div class="muted"><strong>Account Name:</strong> ${escapeHtml(company.bank.accountName || "")}</div>
+        <div class="muted"><strong>Account Number:</strong> ${escapeHtml(company.bank.accountNumber || "")}</div>
+        <div class="muted"><strong>Swift Code:</strong> ${escapeHtml(company.bank.swiftCode || "")}</div>
       </div>
       <div class="box">
-        <div class="label">${escapeHtml(COMPANY.terms?.title || "Terms")}</div>
-        <div class="muted">${escapeHtml((COMPANY.terms?.lines || []).join(" "))}</div>
+        <div class="label">${escapeHtml(company.terms?.title || "Terms")}</div>
+        <div class="muted">${escapeHtml((company.terms?.lines || []).join(" "))}</div>
       </div>
     </div>`
         : ""
@@ -193,8 +207,8 @@ export function printInvoiceFromHtml(html) {
   }, 300);
 }
 
-export function downloadInvoiceHtml(inv, { kind }) {
-  const html = buildInvoiceHtml(inv, { kind });
+export function downloadInvoiceHtml(inv, { kind, company }) {
+  const html = buildInvoiceHtml(inv, { kind, company });
   const ext = "html";
   const label = kind === "delivery" ? "delivery-note" : "invoice";
   const name = `${label}-${inv.invoiceNumber ?? "x"}`;
@@ -205,4 +219,3 @@ export function downloadInvoiceHtml(inv, { kind }) {
   a.click();
   URL.revokeObjectURL(a.href);
 }
-

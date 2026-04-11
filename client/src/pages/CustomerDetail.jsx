@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { customersApi, creditsApi, paymentsApi, invoicesApi } from "../api.js";
 import { useAuth } from "../auth.jsx";
+import { useCompanyProfile } from "../companySettings.jsx";
 import { formatMoney, toInputDate, todayISO } from "../util.js";
 import {
   buildAccountReportHtml,
@@ -27,6 +28,7 @@ export default function CustomerDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
+  const { profile } = useCompanyProfile();
   const isNew = id === "new";
 
   const [customer, setCustomer] = useState(null);
@@ -267,17 +269,17 @@ export default function CustomerDetail() {
 
   function handlePrintReport() {
     if (!customer) return;
-    printAccountReportFromHtml(buildAccountReportHtml(customer, accountReportRows, reportTotals));
+    printAccountReportFromHtml(buildAccountReportHtml(customer, accountReportRows, reportTotals, profile));
   }
 
   function handleDownloadPdf() {
     if (!customer) return;
-    downloadAccountReportPdf(customer, accountReportRows, reportTotals);
+    downloadAccountReportPdf(customer, accountReportRows, reportTotals, profile);
   }
 
   function handleDownloadWord() {
     if (!customer) return;
-    downloadAccountReportWord(customer, accountReportRows, reportTotals);
+    downloadAccountReportWord(customer, accountReportRows, reportTotals, profile);
   }
 
   return (
