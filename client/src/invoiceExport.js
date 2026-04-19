@@ -81,15 +81,15 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
   html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { font-family: 'Segoe UI', Arial, sans-serif; color: #111827; margin: 0; font-size: 11pt; }
   .wrap { padding: 0; }
-  .top { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: start; }
-  .brandRow { display: flex; gap: 12px; align-items: flex-start; }
-  .brand h1 { margin: 0; font-size: 18pt; letter-spacing: 0.2px; }
+  .top { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .brandStack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .brand h1 { margin: 0; font-size: 18pt; letter-spacing: 0.2px; font-weight: 800; white-space: nowrap; }
   .brand .sub { margin: 2px 0 0 0; color: #6b7280; font-size: 10pt; line-height: 1.25; }
-  .centerTitle { text-align: center; padding-top: 4px; }
+  .centerTitle { text-align: center; margin: 10px 0 12px; }
   .centerTitle h2 { margin: 0; font-size: 26pt; letter-spacing: 1.6px; }
   .contact { text-align: right; color: #111827; font-size: 10pt; line-height: 1.25; }
   .contact .muted { color: #6b7280; }
-  .bar { height: 3px; background: #0ea5e9; margin: 8px 0 12px; }
+  .bar { height: 3px; background: #0ea5e9; margin: 8px 0 0; }
 
   .pillRow { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 10px; }
   .pill { display: inline-block; background: #0ea5e9; color: #fff; font-weight: 800; font-size: 10pt; letter-spacing: 0.4px; padding: 6px 12px; border-radius: 4px; }
@@ -124,15 +124,10 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
   <div class="wrap">
     <div class="top">
       <div class="brand">
-        <div class="brandRow">
+        <div class="brandStack">
           ${logoBlock}
-          <div>
-            <h1>${escapeHtml(company.legalName)}</h1>
-          </div>
+          <h1>${escapeHtml(company.legalName)}</h1>
         </div>
-      </div>
-      <div class="centerTitle">
-        <h2>${escapeHtml(title.toUpperCase())}</h2>
       </div>
       <div class="contact">
         ${(company.addressLines || []).map((l) => `<div>${escapeHtml(l)}</div>`).join("")}
@@ -141,6 +136,9 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
       </div>
     </div>
     <div class="bar"></div>
+    <div class="centerTitle">
+      <h2>${escapeHtml(title.toUpperCase())}</h2>
+    </div>
 
     <div class="pillRow">
       <div><span class="pill">TO :</span></div>
