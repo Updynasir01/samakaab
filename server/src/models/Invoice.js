@@ -16,6 +16,7 @@ const lineItemSchema = new mongoose.Schema(
 const invoiceSchema = new mongoose.Schema(
   {
     invoiceNumber: { type: Number, required: true, unique: true },
+    orderNumber: { type: String, trim: true, default: "" },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null },
     lineItems: [lineItemSchema],
     total: { type: Number, required: true, min: 0 },

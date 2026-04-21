@@ -25,6 +25,11 @@ async function nextInvoiceNumber() {
   return (last?.invoiceNumber || 0) + 1;
 }
 
+router.get("/next-number", async (_req, res) => {
+  const invoiceNumber = await nextInvoiceNumber();
+  res.json({ invoiceNumber });
+});
+
 /** Sum of PaymentEntry amounts linked to each invoice (record payment / full pay flows). */
 async function attachPaymentsRecordedToInvoices(list) {
   if (!list.length) return list;
@@ -90,6 +95,8 @@ router.post(
   body("lineItems.*.quantity").isFloat({ min: 0 }),
   body("lineItems.*.unit").optional().trim(),
   body("lineItems.*.unitPrice").isFloat({ min: 0 }),
+  body("invoiceNumber").optional().isInt({ min: 1 }),
+  body("orderNumber").optional().trim(),
   body("date").isISO8601(),
   body("paidAtSale").optional().isFloat({ min: 0 }),
   body("expectedPayDate").optional().isISO8601(),
@@ -107,6 +114,7 @@ router.post(
     const paidAtSale = round2(req.body.paidAtSale ?? 0);
     const date = new Date(req.body.date);
     const note = req.body.note || "";
+    const orderNumber = String(req.body.orderNumber || "").trim();
 
     const lineItems = req.body.lineItems.map((li) => {
       const quantity = round2(li.quantity);
@@ -160,11 +168,18 @@ router.post(
     }
 
     // No MongoDB multi-document transactions: standalone MongoDB does not support them (replica set only).
-    const invoiceNumber = await nextInvoiceNumber();
+    let invoiceNumber = req.body.invoiceNumber ? Number(req.body.invoiceNumber) : null;
+    if (invoiceNumber != null) {
+      const exists = await Invoice.exists({ invoiceNumber });
+      if (exists) return res.status(409).json({ message: `Invoice number #${invoiceNumber} already exists` });
+    } else {
+      invoiceNumber = await nextInvoiceNumber();
+    }
 
     const [inv] = await Invoice.create([
       {
         invoiceNumber,
+        orderNumber,
         customer: customerId,
         lineItems,
         total,

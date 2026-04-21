@@ -15,6 +15,8 @@ export default function InvoiceForm() {
 
   const [customers, setCustomers] = useState([]);
   const [customerId, setCustomerId] = useState(preCustomer);
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [orderNumber, setOrderNumber] = useState("");
   const [date, setDate] = useState(todayISO());
   const [expectedPayDate, setExpectedPayDate] = useState(todayISO());
   const [paidAtSale, setPaidAtSale] = useState("");
@@ -26,6 +28,10 @@ export default function InvoiceForm() {
 
   useEffect(() => {
     customersApi.list().then(setCustomers).catch(() => {});
+    invoicesApi
+      .nextNumber()
+      .then((d) => setInvoiceNumber(String(d?.invoiceNumber ?? "")))
+      .catch(() => {});
   }, []);
 
   const lineTotals = items.map((row) => {
@@ -113,8 +119,10 @@ export default function InvoiceForm() {
         date: new Date(date).toISOString(),
         paidAtSale: paidNum,
         note: note.trim(),
+        orderNumber: orderNumber.trim(),
         ...(customerId ? { customer: customerId } : {}),
         ...(creditPreview > 0.004 ? { expectedPayDate: new Date(expectedPayDate).toISOString() } : {}),
+        ...(invoiceNumber && Number(invoiceNumber) > 0 ? { invoiceNumber: Number(invoiceNumber) } : {}),
       };
 
       const inv = await invoicesApi.create(body);
@@ -158,6 +166,27 @@ export default function InvoiceForm() {
           <div>
             <label>Invoice date</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+          </div>
+        </div>
+
+        <div className="grid grid-2" style={{ marginBottom: "1rem" }}>
+          <div>
+            <label>Invoice number</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={invoiceNumber}
+              onChange={(e) => setInvoiceNumber(e.target.value)}
+              placeholder="Auto"
+            />
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0 0" }}>
+              Automatically suggested, but you can edit if needed.
+            </p>
+          </div>
+          <div>
+            <label>Order number</label>
+            <input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} placeholder="Optional" />
           </div>
         </div>
 

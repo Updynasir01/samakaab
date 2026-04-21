@@ -60,7 +60,10 @@ export default function InvoiceDetail() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.75rem" }}>
         <div>
           <h1 style={{ margin: 0 }}>Invoice #{inv.invoiceNumber}</h1>
-          <p style={{ color: "var(--muted)", margin: "0.25rem 0 0" }}>{new Date(inv.date).toLocaleString()}</p>
+          <p style={{ color: "var(--muted)", margin: "0.25rem 0 0" }}>
+            {new Date(inv.date).toLocaleString()}
+            {inv.orderNumber ? ` · Order: ${inv.orderNumber}` : ""}
+          </p>
         </div>
         {isAdmin && (
           <button type="button" className="btn btn-danger" onClick={remove}>
