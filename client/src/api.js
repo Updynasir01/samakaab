@@ -9,11 +9,20 @@ export function setToken(t) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+function normalizeBaseUrl(u) {
+  if (!u) return "";
+  const s = String(u).trim();
+  return s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
+const API_BASE = normalizeBaseUrl(import.meta.env?.VITE_API_URL);
+
 export async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...options.headers };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`/api${path}`, { ...options, headers });
+  const url = API_BASE ? `${API_BASE}/api${path}` : `/api${path}`;
+  const res = await fetch(url, { ...options, headers });
   if (res.status === 401 && getToken()) {
     setToken(null);
     window.dispatchEvent(new Event("samakaab:logout"));
