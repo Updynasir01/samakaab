@@ -61,10 +61,6 @@ export default function Login() {
             {pending ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p style={{ marginTop: "1rem", fontSize: "0.8rem", color: "var(--muted)" }}>
-          First-time setup: run <code>npm run seed</code> in the server folder to create <strong>admin</strong> /{" "}
-          <strong>admin123</strong>.
-        </p>
       </div>
     </div>
   );
