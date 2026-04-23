@@ -15,8 +15,9 @@ export default function Login() {
 
   useEffect(() => {
     let alive = true;
-    settingsApi
-      .getCompanyPublic()
+    const fn = settingsApi?.getCompanyPublic;
+    if (typeof fn !== "function") return () => void (alive = false);
+    fn()
       .then((d) => {
         if (!alive) return;
         setBrand({
