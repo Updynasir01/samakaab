@@ -4,16 +4,19 @@ import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./auth.jsx";
 import { CompanyProfileProvider } from "./companySettings.jsx";
 import App from "./App.jsx";
+import ErrorBoundary from "./ErrorBoundary.jsx";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <CompanyProfileProvider>
-          <App />
-        </CompanyProfileProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <CompanyProfileProvider>
+            <App />
+          </CompanyProfileProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>
 );
