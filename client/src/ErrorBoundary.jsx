@@ -3,7 +3,7 @@ import { Component } from "react";
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, lastWindowError: null };
   }
 
   static getDerivedStateFromError(error) {
@@ -16,8 +16,29 @@ export default class ErrorBoundary extends Component {
     console.error("App crash:", error, info);
   }
 
+  componentDidMount() {
+    this._onError = (ev) => {
+      const msg = ev?.message || ev?.error?.message || "Window error";
+      const stack = ev?.error?.stack || "";
+      this.setState({ lastWindowError: { msg, stack } });
+    };
+    this._onRej = (ev) => {
+      const r = ev?.reason;
+      const msg = r?.message || String(r || "Unhandled rejection");
+      const stack = r?.stack || "";
+      this.setState({ lastWindowError: { msg, stack } });
+    };
+    window.addEventListener("error", this._onError);
+    window.addEventListener("unhandledrejection", this._onRej);
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener("error", this._onError);
+    window.removeEventListener("unhandledrejection", this._onRej);
+  }
+
   render() {
-    const { error } = this.state;
+    const { error, lastWindowError } = this.state;
     if (!error) return this.props.children;
     return (
       <div style={{ padding: "2rem", maxWidth: 900, margin: "0 auto", color: "var(--text)" }}>
@@ -36,6 +57,8 @@ export default class ErrorBoundary extends Component {
           }}
         >
           {String(error?.message || error)}
+          {error?.stack ? `\n\n${error.stack}` : ""}
+          {lastWindowError ? `\n\nWindow: ${lastWindowError.msg}\n${lastWindowError.stack || ""}` : ""}
         </pre>
       </div>
     );

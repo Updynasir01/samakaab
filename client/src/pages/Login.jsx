@@ -11,8 +11,6 @@ export default function Login() {
   const [pending, setPending] = useState(false);
   const [brand, setBrand] = useState({ brandName: "Samakaab Supermarket", logoDataUrl: "" });
 
-  if (user) return <Navigate to="/" replace />;
-
   useEffect(() => {
     let alive = true;
     const fn = settingsApi?.getCompanyPublic;
@@ -43,6 +41,8 @@ export default function Login() {
       setPending(false);
     }
   }
+
+  if (user) return <Navigate to="/" replace />;
 
   return (
     <div className="loginWrap">
