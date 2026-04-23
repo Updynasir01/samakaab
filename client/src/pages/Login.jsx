@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
+import { settingsApi } from "../api.js";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -8,8 +9,26 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [pending, setPending] = useState(false);
+  const [brand, setBrand] = useState({ brandName: "Samakaab Supermarket", logoDataUrl: "" });
 
   if (user) return <Navigate to="/" replace />;
+
+  useEffect(() => {
+    let alive = true;
+    settingsApi
+      .getCompanyPublic()
+      .then((d) => {
+        if (!alive) return;
+        setBrand({
+          brandName: d?.brandName || d?.systemTitle || "Samakaab Supermarket",
+          logoDataUrl: typeof d?.logoDataUrl === "string" ? d.logoDataUrl : "",
+        });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -28,11 +47,15 @@ export default function Login() {
     <div className="loginWrap">
       <div className="loginCard">
         <div className="loginBrandRow">
-          <div className="loginLogo" aria-hidden>
-            S
-          </div>
+          {brand.logoDataUrl ? (
+            <img className="loginLogoImg" src={brand.logoDataUrl} alt="" />
+          ) : (
+            <div className="loginLogo" aria-hidden>
+              S
+            </div>
+          )}
           <div>
-            <h1 className="loginTitle">Samakaab Supermarket</h1>
+            <h1 className="loginTitle">{brand.brandName || "Samakaab Supermarket"}</h1>
             <p className="loginSubtitle">Sign in to manage credit</p>
           </div>
         </div>
@@ -69,8 +92,6 @@ export default function Login() {
             </button>
           </div>
         </form>
-
-        <p className="loginHint">Session expires when the browser is closed.</p>
       </div>
     </div>
   );

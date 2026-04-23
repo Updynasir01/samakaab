@@ -84,6 +84,7 @@ export const reportsApi = {
 
 export const settingsApi = {
   getCompany: () => api("/settings/company"),
+  getCompanyPublic: () => api("/settings/company-public"),
   updateCompany: (body) => api("/settings/company", { method: "PATCH", body: JSON.stringify(body) }),
 };
 

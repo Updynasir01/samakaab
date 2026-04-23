@@ -60,6 +60,17 @@ router.get("/company", authRequired, async (_req, res) => {
   res.json(mergeWithDefaults(doc));
 });
 
+// Public branding endpoint (safe for login screen): no bank/terms/contact details.
+router.get("/company-public", async (_req, res) => {
+  const doc = await AppSettings.findOne();
+  const merged = mergeWithDefaults(doc);
+  res.json({
+    systemTitle: merged.systemTitle,
+    brandName: merged.brandName,
+    logoDataUrl: merged.logoDataUrl,
+  });
+});
+
 router.patch(
   "/company",
   authRequired,
