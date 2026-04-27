@@ -152,6 +152,7 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
         ${customerAddress ? `<div class="muted">${escapeHtml(customerAddress)}</div>` : ""}
       </div>
       <div class="box">
+        <div class="muted"><strong>Date:</strong> ${escapeHtml(dateShort || "—")}</div>
         <div class="muted"><strong>Status:</strong> ${escapeHtml(inv.paymentStatus ?? "")}</div>
         ${isDelivery ? "" : `<div class="muted"><strong>Paid at sale:</strong> ${escapeHtml(formatMoney(paidAtSale))}</div>`}
         ${isDelivery ? "" : `<div class="muted"><strong>Payments recorded:</strong> ${escapeHtml(formatMoney(paymentsRecorded))}</div>`}
