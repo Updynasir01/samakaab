@@ -20,7 +20,6 @@ function buildLedgerRows(rows) {
         sortTime: Number(r.sortTime || 0),
         date: r.date || "—",
         dis: r.dis || "—",
-        note: r.detail || "—",
         invoiceRef,
         amountDue: isCredit ? amount : 0,
         totalPaid: isCredit ? 0 : amount,
@@ -47,10 +46,9 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
   const rowHtml = ledgerRows
     .map(
       (r) => `<tr>
-    <td>${escapeHtml(r.date)}</td>
-    <td>${escapeHtml(r.dis)}</td>
-    <td>${escapeHtml(r.note)}</td>
-    <td>${escapeHtml(r.invoiceRef)}</td>
+    <td class="col-date">${escapeHtml(r.date)}</td>
+    <td class="col-dis">${escapeHtml(r.dis)}</td>
+    <td class="col-inv">${escapeHtml(r.invoiceRef)}</td>
     <td class="amount">${r.amountDue ? escapeHtml(formatMoney(r.amountDue)) : ""}</td>
     <td class="amount">${r.totalPaid ? escapeHtml(formatMoney(r.totalPaid)) : ""}</td>
     <td class="amount">${escapeHtml(formatMoney(r.outstanding))}</td>
@@ -93,10 +91,13 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
     display: grid; grid-template-columns: 1fr auto; gap: 8px;
     border-top: 2px solid #9ca3af; border-bottom: 2px solid #9ca3af; padding: 4px 8px; font-weight: 700; color: #2f4e61;
   }
-  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
-  th, td { border: 1px solid #c8d0d8; padding: 4px 7px; text-align: left; vertical-align: middle; font-size: 9.8pt; }
-  th { background: #b9d8ea; color: #1f2937; font-weight: 700; }
-  td.amount { text-align: right; font-variant-numeric: tabular-nums; }
+  table.ledger { border-collapse: collapse; width: 100%; margin-top: 8px; table-layout: fixed; }
+  table.ledger th, table.ledger td { border: 1px solid #c8d0d8; padding: 4px 6px; text-align: left; vertical-align: top; font-size: 9.5pt; }
+  table.ledger th { background: #b9d8ea; color: #1f2937; font-weight: 700; }
+  table.ledger td.col-date, table.ledger th.col-date { white-space: nowrap; }
+  table.ledger td.col-dis, table.ledger th.col-dis { white-space: nowrap; }
+  table.ledger td.col-inv, table.ledger th.col-inv { white-space: nowrap; }
+  table.ledger td.amount, table.ledger th.amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .muted { color: #6b7280; }
 </style>
 </head>
@@ -119,15 +120,23 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
       </div>
     </div>
 
-    <table>
+    <table class="ledger">
+    <colgroup>
+      <col style="width: 96px" />
+      <col style="width: 108px" />
+      <col style="width: 76px" />
+      <col style="width: 88px" />
+      <col style="width: 88px" />
+      <col style="width: 96px" />
+    </colgroup>
     <thead>
-      <tr><th>Invoice Date</th><th>Dis</th><th>Note</th><th>Invoice #</th><th class="amount">Amount Due</th><th class="amount">Total Paid</th><th class="amount">Outstanding</th></tr>
+      <tr><th class="col-date">Invoice Date</th><th class="col-dis">Dis</th><th class="col-inv">Invoice #</th><th class="amount">Amount Due</th><th class="amount">Total Paid</th><th class="amount">Outstanding</th></tr>
     </thead>
     <tbody>
       ${
         ledgerRows.length
           ? rowHtml
-          : `<tr><td colspan="7" class="muted">No statement lines yet.</td></tr>`
+          : `<tr><td colspan="6" class="muted">No statement lines yet.</td></tr>`
       }
     </tbody>
   </table>
@@ -199,7 +208,7 @@ export function downloadAccountReportPdf(customer, rows, totals, company = DEFAU
   doc.text(formatMoney(totals.balance), boxX + 64, y + 2, { align: "right" });
   y += 12;
 
-  const col = [25, 24, 56, 30, 24, 24, 28];
+  const col = [32, 28, 26, 26, 26, 30];
   const colX = [m];
   for (let i = 1; i < col.length; i++) colX.push(colX[i - 1] + col[i - 1]);
 
@@ -207,10 +216,10 @@ export function downloadAccountReportPdf(customer, rows, totals, company = DEFAU
   doc.rect(m, y - 4.5, col.reduce((a, b) => a + b, 0), 6, "F");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  const headers = ["Invoice Date", "Dis", "Note", "Invoice #", "Amount Due", "Total Paid", "Outstanding"];
+  const headers = ["Invoice Date", "Dis", "Invoice #", "Amount Due", "Total Paid", "Outstanding"];
   headers.forEach((h, i) => {
     const x = colX[i];
-    if (i >= 4) doc.text(h, colX[i] + col[i] - 2, y, { align: "right" });
+    if (i >= 3) doc.text(h, colX[i] + col[i] - 2, y, { align: "right" });
     else doc.text(h, x, y);
   });
   y += 3.5;
@@ -225,13 +234,12 @@ export function downloadAccountReportPdf(customer, rows, totals, company = DEFAU
       doc.addPage();
       y = m;
     }
-    doc.text(r.date, colX[0], y + 3.5);
-    doc.text(r.dis, colX[1], y + 3.5);
-    doc.text(doc.splitTextToSize(r.note, col[2] - 1), colX[2], y + 3.5);
-    doc.text(r.invoiceRef, colX[3], y + 3.5);
-    doc.text(r.amountDue ? formatMoney(r.amountDue) : "", colX[4] + col[4] - 2, y + 3.5, { align: "right" });
-    doc.text(r.totalPaid ? formatMoney(r.totalPaid) : "", colX[5] + col[5] - 2, y + 3.5, { align: "right" });
-    doc.text(formatMoney(r.outstanding), colX[6] + col[6] - 2, y + 3.5, { align: "right" });
+    doc.text(r.date, colX[0], y + 3.5, { maxWidth: col[0] - 1 });
+    doc.text(r.dis, colX[1], y + 3.5, { maxWidth: col[1] - 1 });
+    doc.text(r.invoiceRef, colX[2], y + 3.5);
+    doc.text(r.amountDue ? formatMoney(r.amountDue) : "", colX[3] + col[3] - 2, y + 3.5, { align: "right" });
+    doc.text(r.totalPaid ? formatMoney(r.totalPaid) : "", colX[4] + col[4] - 2, y + 3.5, { align: "right" });
+    doc.text(formatMoney(r.outstanding), colX[5] + col[5] - 2, y + 3.5, { align: "right" });
     y += 5;
   });
 
