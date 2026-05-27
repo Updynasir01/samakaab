@@ -26,27 +26,115 @@ function formFromProfile(p) {
 }
 
 export default function Settings() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user: currentUser } = useAuth();
   const { profile, loading: profileLoading, refresh: refreshCompany } = useCompanyProfile();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState("staff");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [pending, setPending] = useState(false);
+
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersErr, setUsersErr] = useState("");
 
   const [companyForm, setCompanyForm] = useState(null);
   const [companyMsg, setCompanyMsg] = useState("");
   const [companyErr, setCompanyErr] = useState("");
   const [companySaving, setCompanySaving] = useState(false);
 
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [pwdMsg, setPwdMsg] = useState("");
+  const [pwdErr, setPwdErr] = useState("");
+  const [pwdPending, setPwdPending] = useState(false);
+
   useEffect(() => {
     if (profileLoading || companyForm !== null) return;
     setCompanyForm(formFromProfile(profile));
   }, [profileLoading, profile, companyForm]);
 
+  async function loadUsers() {
+    setUsersErr("");
+    setUsersLoading(true);
+    try {
+      const list = await authApi.listUsers();
+      setUsers(list);
+    } catch (x) {
+      setUsersErr(x.message || "Could not load users");
+    } finally {
+      setUsersLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    loadUsers();
+  }, [isAdmin]);
+
   if (!isAdmin) return <Navigate to="/" replace />;
+
+  async function onDeleteUser(u) {
+    const label = `${u.username} (${u.role})`;
+    if (!window.confirm(`Delete user "${label}"? They will not be able to log in again.`)) return;
+    setUsersErr("");
+    try {
+      await authApi.removeUser(u.id);
+      await loadUsers();
+    } catch (x) {
+      setUsersErr(x.message || "Could not delete user");
+    }
+  }
+
+  async function onResetPassword(u) {
+    const newPass = window.prompt(`New password for "${u.username}" (min 6 characters):`);
+    if (newPass == null) return;
+    if (newPass.length < 6) {
+      setUsersErr("Password must be at least 6 characters.");
+      return;
+    }
+    setUsersErr("");
+    setMsg("");
+    try {
+      await authApi.resetUserPassword(u.id, { newPassword: newPass });
+      setMsg(`Password renewed for ${u.username}.`);
+    } catch (x) {
+      setUsersErr(x.message || "Could not reset password");
+    }
+  }
+
+  async function onRenewMyPassword(e) {
+    e.preventDefault();
+    setPwdErr("");
+    setPwdMsg("");
+    if (newPassword !== confirmPassword) {
+      setPwdErr("New password and confirmation do not match.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPwdErr("New password must be at least 6 characters.");
+      return;
+    }
+    setPwdPending(true);
+    try {
+      await authApi.changePassword({ currentPassword, newPassword });
+      setPwdMsg("Your password was renewed.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (x) {
+      setPwdErr(x.message || "Could not update password");
+    } finally {
+      setPwdPending(false);
+    }
+  }
 
   async function onSubmitUser(e) {
     e.preventDefault();
@@ -59,6 +147,7 @@ export default function Settings() {
       setUsername("");
       setPassword("");
       setRole("staff");
+      await loadUsers();
     } catch (x) {
       setErr(x.message || "Failed");
     } finally {
@@ -278,6 +367,146 @@ export default function Settings() {
         )}
       </div>
 
+      <div className="card" style={{ marginBottom: "1.25rem", maxWidth: 420 }}>
+        <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Renew my password</h2>
+        <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0 }}>
+          Signed in as <strong>{currentUser?.username}</strong>. Enter your current password, then choose a new one.
+        </p>
+        <form onSubmit={onRenewMyPassword}>
+          <div style={{ marginBottom: "0.75rem" }}>
+            <label htmlFor="my-current-password">Current password</label>
+            <div className="passwordFieldWrap">
+              <input
+                id="my-current-password"
+                type={showCurrent ? "text" : "password"}
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+              />
+              <button type="button" className="passwordToggle" onClick={() => setShowCurrent((v) => !v)}>
+                {showCurrent ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+          <div style={{ marginBottom: "0.75rem" }}>
+            <label htmlFor="my-new-password">New password</label>
+            <div className="passwordFieldWrap">
+              <input
+                id="my-new-password"
+                type={showNew ? "text" : "password"}
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                minLength={6}
+              />
+              <button type="button" className="passwordToggle" onClick={() => setShowNew((v) => !v)}>
+                {showNew ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+          <div style={{ marginBottom: "0.75rem" }}>
+            <label htmlFor="my-confirm-password">Confirm new password</label>
+            <div className="passwordFieldWrap">
+              <input
+                id="my-confirm-password"
+                type={showConfirm ? "text" : "password"}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                minLength={6}
+              />
+              <button type="button" className="passwordToggle" onClick={() => setShowConfirm((v) => !v)}>
+                {showConfirm ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+          {pwdErr && <p style={{ color: "var(--danger)" }}>{pwdErr}</p>}
+          {pwdMsg && <p style={{ color: "var(--accent)" }}>{pwdMsg}</p>}
+          <button type="submit" className="btn btn-primary" disabled={pwdPending}>
+            {pwdPending ? "Updating…" : "Renew my password"}
+          </button>
+        </form>
+      </div>
+
+      <div className="card" style={{ marginBottom: "1.25rem", maxWidth: 640 }}>
+        <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Users</h2>
+        <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0 }}>
+          All login accounts. Renew password for any user, or delete staff/admin — except yourself and the last admin.
+        </p>
+        {msg && <p style={{ color: "var(--accent)" }}>{msg}</p>}
+        {usersErr && <p style={{ color: "var(--danger)" }}>{usersErr}</p>}
+        {usersLoading ? (
+          <p style={{ color: "var(--muted)" }}>Loading users…</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Created</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {users.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ color: "var(--muted)" }}>
+                      No users found.
+                    </td>
+                  </tr>
+                ) : (
+                  users.map((u) => {
+                    const isSelf = String(u.id) === String(currentUser?.id);
+                    return (
+                      <tr key={u.id}>
+                        <td>
+                          {u.username}
+                          {isSelf ? (
+                            <span style={{ marginLeft: 6, fontSize: "0.8rem", color: "var(--muted)" }}>(you)</span>
+                          ) : null}
+                        </td>
+                        <td>{u.role === "admin" ? "Admin" : "Staff"}</td>
+                        <td>{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}</td>
+                        <td>
+                          <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+                            {!isSelf ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost"
+                                  style={{ padding: "0.25rem 0.5rem", fontSize: "0.85rem" }}
+                                  onClick={() => onResetPassword(u)}
+                                >
+                                  Renew password
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-danger"
+                                  style={{ padding: "0.25rem 0.5rem", fontSize: "0.85rem" }}
+                                  onClick={() => onDeleteUser(u)}
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            ) : (
+                              <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>Use form above</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="card" style={{ maxWidth: 420 }}>
         <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Create staff or admin account</h2>
         <form onSubmit={onSubmitUser}>
@@ -287,7 +516,24 @@ export default function Settings() {
           </div>
           <div style={{ marginBottom: "0.75rem" }}>
             <label>Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
+            <div className="passwordFieldWrap">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+              />
+              <button
+                type="button"
+                className="passwordToggle"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
           <div style={{ marginBottom: "0.75rem" }}>
             <label>Role</label>

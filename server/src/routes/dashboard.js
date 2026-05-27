@@ -1,23 +1,22 @@
 import { Router } from "express";
 import Customer from "../models/Customer.js";
 import CreditEntry from "../models/CreditEntry.js";
-import PaymentEntry from "../models/PaymentEntry.js";
 import Invoice from "../models/Invoice.js";
 import { authRequired } from "../middleware/auth.js";
-import { getBalancesForCustomers } from "../services/balance.js";
-import { closeInvoicesWhenAccountSettled } from "../services/invoiceSync.js";
+import { BALANCE_EPS, getBalancesForCustomers, sumPositiveAccountBalances } from "../services/balance.js";
+import { syncCustomersWithOpenDebt } from "../services/invoiceSync.js";
+import {
+  computeMoneyReceived,
+  sumEffectivePayments,
+  sumPaidAtSale,
+  weeklyMoneyInByDay as buildWeeklyMoneyInByDay,
+} from "../services/moneyTotals.js";
 
 const router = Router();
 router.use(authRequired);
 
 router.get("/summary", async (_req, res) => {
-  const idsWithOpenInvoices = await Invoice.distinct("customer", {
-    paymentStatus: { $in: ["unpaid", "partial"] },
-    customer: { $exists: true, $ne: null },
-  });
-  for (const cid of idsWithOpenInvoices) {
-    await closeInvoicesWhenAccountSettled(cid);
-  }
+  await syncCustomersWithOpenDebt();
 
   const customers = await Customer.find().select("_id fullName phone").lean();
   const ids = customers.map((c) => c._id);
@@ -33,31 +32,24 @@ router.get("/summary", async (_req, res) => {
     .populate("customer", "fullName phone")
     .lean();
 
-  // For overdue credits that are linked to invoices, compute remaining per-invoice so we
-  // don't alert on credits already fully paid via invoice-linked payments.
-  const overdueInvoiceIds = overdueCredits
-    .map((cr) => cr.invoice)
-    .filter(Boolean);
-  const paidByInvoiceAgg = overdueInvoiceIds.length
-    ? await PaymentEntry.aggregate([
-        { $match: { invoice: { $in: overdueInvoiceIds } } },
-        { $group: { _id: "$invoice", total: { $sum: "$amount" } } },
-      ])
+  const overdueInvoiceIds = overdueCredits.map((cr) => cr.invoice).filter(Boolean);
+  const overdueInvoices = overdueInvoiceIds.length
+    ? await Invoice.find({ _id: { $in: overdueInvoiceIds } })
+        .select("creditAmount paymentStatus")
+        .lean()
     : [];
-  const paidByInvoice = new Map(paidByInvoiceAgg.map((r) => [String(r._id), r.total || 0]));
+  const invoiceRemainingMap = new Map(
+    overdueInvoices.map((inv) => [String(inv._id), Number(inv.creditAmount || 0)])
+  );
 
   for (const cr of overdueCredits) {
     const custId = String(cr.customer._id || cr.customer);
     const bal = balances.get(custId);
-    if (!bal || bal.balance <= 0) continue;
+    if (!bal || bal.balance <= BALANCE_EPS) continue;
 
-    // If this credit entry is tied to an invoice, show it only if that invoice still has remaining unpaid amount.
-    // (Payments must be linked to the invoice to count here.)
-    const EPS = 0.005;
     if (cr.invoice) {
-      const paid = paidByInvoice.get(String(cr.invoice)) || 0;
-      const remaining = Math.max(0, (cr.amount || 0) - paid);
-      if (remaining <= EPS) continue;
+      const remaining = invoiceRemainingMap.get(String(cr.invoice)) ?? 0;
+      if (remaining <= BALANCE_EPS) continue;
       overdue.push({
         creditId: cr._id,
         customerId: cr.customer._id,
@@ -92,58 +84,17 @@ router.get("/summary", async (_req, res) => {
     { $sort: { _id: 1 } },
   ]);
 
-  const [invoiceCashWeek, paymentsWeek] = await Promise.all([
-    Invoice.aggregate([
-      { $match: { date: { $gte: weekAgo } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
-          total: { $sum: "$paidAtSale" },
-        },
-      },
-    ]),
-    PaymentEntry.aggregate([
-      { $match: { paidAt: { $gte: weekAgo } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$paidAt" } },
-          total: { $sum: "$amount" },
-        },
-      },
-    ]),
-  ]);
+  const weeklyMoneyInByDay = await buildWeeklyMoneyInByDay(weekAgo);
 
-  const moneyInByDay = new Map();
-  for (const row of invoiceCashWeek) {
-    const k = row._id;
-    moneyInByDay.set(k, (moneyInByDay.get(k) || 0) + (row.total || 0));
-  }
-  for (const row of paymentsWeek) {
-    const k = row._id;
-    moneyInByDay.set(k, (moneyInByDay.get(k) || 0) + (row.total || 0));
-  }
+  const [totalCreditAllTime, totalPaidAtSaleAllTime, totalEffectivePaymentsAllTime, totalAccountBalanceOwed] =
+    await Promise.all([
+      CreditEntry.aggregate([{ $group: { _id: null, t: { $sum: "$amount" } } }]).then((r) => r[0]?.t || 0),
+      sumPaidAtSale({}),
+      sumEffectivePayments({}),
+      sumPositiveAccountBalances(ids),
+    ]);
 
-  const weeklyMoneyInByDay = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() - i);
-    d.setUTCHours(0, 0, 0, 0);
-    const key = d.toISOString().slice(0, 10);
-    weeklyMoneyInByDay.push({ date: key, total: moneyInByDay.get(key) || 0 });
-  }
-
-  const [totalCreditAgg, totalPaidAgg, paidAtSaleAgg] = await Promise.all([
-    CreditEntry.aggregate([{ $group: { _id: null, t: { $sum: "$amount" } } }]),
-    PaymentEntry.aggregate([{ $group: { _id: null, t: { $sum: "$amount" } } }]),
-    Invoice.aggregate([{ $group: { _id: null, t: { $sum: "$paidAtSale" } } }]),
-  ]);
-  const totalCreditAllTime = totalCreditAgg[0]?.t || 0;
-  const totalPaidAllTime = totalPaidAgg[0]?.t || 0;
-  /** Cash/card taken when each invoice was created (walk-in full pay + partial at sale). */
-  const totalPaidAtSaleAllTime = paidAtSaleAgg[0]?.t || 0;
-  /** All money in: collected at sale plus payments recorded on customer accounts. */
-  const moneyReceivedAllTime = totalPaidAtSaleAllTime + totalPaidAllTime;
-  const unpaid = Math.max(0, totalCreditAllTime - totalPaidAllTime);
+  const moneyReceivedAllTime = computeMoneyReceived(totalPaidAtSaleAllTime, totalEffectivePaymentsAllTime);
 
   const [aggRow] = await Invoice.aggregate([
     { $match: { paymentStatus: { $in: ["unpaid", "partial"] } } },
@@ -179,6 +130,25 @@ router.get("/summary", async (_req, res) => {
     .lean();
   const custMap = new Map(debtorCustomers.map((c) => [String(c._id), c]));
 
+  const openInvoices = await Invoice.find({
+    paymentStatus: { $in: ["unpaid", "partial"] },
+    creditAmount: { $gt: BALANCE_EPS },
+  })
+    .sort({ invoiceNumber: -1 })
+    .select("invoiceNumber customer creditAmount")
+    .lean();
+
+  const invoicesByCustomer = new Map();
+  for (const inv of openInvoices) {
+    const cid = String(inv.customer);
+    if (!invoicesByCustomer.has(cid)) invoicesByCustomer.set(cid, []);
+    invoicesByCustomer.get(cid).push({
+      invoiceId: inv._id,
+      invoiceNumber: inv.invoiceNumber,
+      creditAmount: inv.creditAmount,
+    });
+  }
+
   const debtors = debtorGroups.map((g) => {
     const c = custMap.get(String(g._id));
     return {
@@ -186,14 +156,16 @@ router.get("/summary", async (_req, res) => {
       fullName: c?.fullName || "?",
       phone: c?.phone || "",
       balance: g.balance,
+      invoices: invoicesByCustomer.get(String(g._id)) || [],
     };
   });
 
   res.json({
     totalOwedToday: totalInvoiceDebt,
+    totalAccountBalanceOwed,
     moneyReceived: moneyReceivedAllTime,
     paidAtSaleAllTime: totalPaidAtSaleAllTime,
-    paymentsRecordedAllTime: totalPaidAllTime,
+    paymentsRecordedAllTime: totalEffectivePaymentsAllTime,
     customersWithDebt: debtors.length,
     debtors,
     overdueAlerts: overdue,
@@ -201,8 +173,8 @@ router.get("/summary", async (_req, res) => {
     weeklyMoneyInByDay,
     pie: {
       totalCredit: totalCreditAllTime,
-      totalPaid: totalPaidAllTime,
-      outstanding: unpaid,
+      totalPaid: totalEffectivePaymentsAllTime,
+      outstanding: totalAccountBalanceOwed,
       moneyReceived: moneyReceivedAllTime,
       outstandingInvoiceDebt: totalInvoiceDebt,
     },

@@ -31,12 +31,14 @@ export default function Debtors() {
       </p>
       <h1 style={{ marginTop: 0 }}>Deynta invoice (unpaid + partial)</h1>
       <p style={{ color: "var(--muted)", maxWidth: 640, marginBottom: "1.25rem" }}>
-        Wadarta &quot;On credit&quot; invoice-yada aan la dhammaystirin, macaamiil kasta. Riix magaca si aad u furto profile-kiisa.
+        Wadarta &quot;On credit&quot; invoice-yada aan la dhammaystirin, macaamiil kasta. Tani waa deyn invoice kaliya — ma aha wadarta account balance (manual credit waa ka duwan yihiin). Riix magaca ama invoice # si aad u furto.
       </p>
 
       <div className="card" style={{ marginBottom: "1rem", borderTop: "3px solid var(--danger)" }}>
         <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Total debt</div>
-        <div style={{ fontSize: "1.75rem", fontWeight: 700, color: total > 0.004 ? "var(--danger)" : "inherit" }}>{formatMoney(total)}</div>
+        <div style={{ fontSize: "1.75rem", fontWeight: 700, color: total > 0.004 ? "var(--danger)" : "inherit" }}>
+          {formatMoney(total)}
+        </div>
         <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.35rem" }}>
           {data.customersWithDebt ?? debtors.length} macaamiil
         </div>
@@ -48,13 +50,15 @@ export default function Debtors() {
         </div>
       ) : (
         <div className="card">
+          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>By customer</h2>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Customer</th>
                   <th>Phone</th>
-                  <th>On credit (invoice sum)</th>
+                  <th>Invoice #</th>
+                  <th>On credit (remaining)</th>
                 </tr>
               </thead>
               <tbody>
@@ -64,6 +68,18 @@ export default function Debtors() {
                       <Link to={`/customers/${d.customerId}`}>{d.fullName}</Link>
                     </td>
                     <td>{d.phone}</td>
+                    <td>
+                      {(d.invoices || []).length ? (
+                        (d.invoices || []).map((inv, idx) => (
+                          <span key={String(inv.invoiceId)}>
+                            {idx > 0 ? ", " : ""}
+                            <Link to={`/invoices/${inv.invoiceId}`}>#{inv.invoiceNumber}</Link>
+                          </span>
+                        ))
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td>
                       <strong>{formatMoney(d.balance)}</strong>
                     </td>

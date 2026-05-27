@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 import authRoutes from "./routes/auth.js";
 import customerRoutes from "./routes/customers.js";
@@ -13,9 +15,44 @@ import settingsRoutes from "./routes/settings.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const isProd = process.env.NODE_ENV === "production";
 
-app.use(cors({ origin: true, credentials: true }));
+function parseCorsOrigins() {
+  const raw = process.env.CORS_ORIGIN || "";
+  const list = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (list.length) return list;
+  if (isProd) return [];
+  return ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:4173"];
+}
+
+const corsOrigins = parseCorsOrigins();
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin || corsOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"));
+    },
+  })
+);
 app.use(express.json({ limit: "2mb" }));
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many login attempts. Try again in 15 minutes." },
+});
+app.use("/api/auth/login", loginLimiter);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/customers", customerRoutes);
@@ -31,6 +68,9 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use((err, _req, res, _next) => {
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({ message: "Origin not allowed" });
+  }
   console.error(err);
   const status = err.status || 500;
   res.status(status).json({
@@ -45,6 +85,9 @@ mongoose
   .connect(uri)
   .then(() => {
     console.log("MongoDB connected");
+    if (isProd && !corsOrigins.length) {
+      console.warn("WARNING: CORS_ORIGIN is not set — browser clients may be blocked.");
+    }
     app.listen(PORT, () => console.log(`API http://localhost:${PORT}`));
   })
   .catch((e) => {

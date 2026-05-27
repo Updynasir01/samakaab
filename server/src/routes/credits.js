@@ -3,7 +3,9 @@ import mongoose from "mongoose";
 import { body, query, validationResult } from "express-validator";
 import CreditEntry from "../models/CreditEntry.js";
 import Customer from "../models/Customer.js";
-import { authRequired, adminOnly } from "../middleware/auth.js";
+import Invoice from "../models/Invoice.js";
+import { authRequired, adminOnly, actorUsername } from "../middleware/auth.js";
+import { syncCustomerInvoices } from "../services/invoiceSync.js";
 
 const router = Router();
 router.use(authRequired);
@@ -51,9 +53,12 @@ router.post(
     const exists = await Customer.findById(req.body.customer);
     if (!exists) return res.status(404).json({ message: "Customer not found" });
     const entry = await CreditEntry.create({
-      ...req.body,
+      customer: req.body.customer,
+      amount: req.body.amount,
+      description: req.body.description,
       dateOfCredit: new Date(req.body.dateOfCredit),
       expectedPayDate: new Date(req.body.expectedPayDate),
+      createdBy: actorUsername(req),
     });
     res.status(201).json(entry);
   }
@@ -65,6 +70,13 @@ router.delete("/:id", adminOnly, async (req, res) => {
   }
   const d = await CreditEntry.findByIdAndDelete(req.params.id);
   if (!d) return res.status(404).json({ message: "Not found" });
+  if (d.invoice) {
+    await Invoice.updateOne(
+      { _id: d.invoice },
+      { $unset: { creditEntry: "" }, $set: { creditAmount: 0, paymentStatus: "paid" } }
+    );
+  }
+  if (d.customer) await syncCustomerInvoices(d.customer);
   res.status(204).send();
 });
 

@@ -47,6 +47,10 @@ export const authApi = {
   login: (body) => api("/auth/login", { method: "POST", body: JSON.stringify(body) }),
   me: () => api("/auth/me"),
   register: (body) => api("/auth/register", { method: "POST", body: JSON.stringify(body) }),
+  listUsers: () => api("/auth/users"),
+  removeUser: (id) => api(`/auth/users/${id}`, { method: "DELETE" }),
+  changePassword: (body) => api("/auth/password", { method: "PATCH", body: JSON.stringify(body) }),
+  resetUserPassword: (id, body) => api(`/auth/users/${id}/password`, { method: "PATCH", body: JSON.stringify(body) }),
 };
 
 export const customersApi = {

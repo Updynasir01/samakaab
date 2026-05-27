@@ -3,8 +3,9 @@ import mongoose from "mongoose";
 import { body, validationResult } from "express-validator";
 import PaymentEntry from "../models/PaymentEntry.js";
 import Customer from "../models/Customer.js";
-import { authRequired, adminOnly } from "../middleware/auth.js";
-import { closeInvoicesWhenAccountSettled } from "../services/invoiceSync.js";
+import Invoice from "../models/Invoice.js";
+import { authRequired, adminOnly, actorUsername } from "../middleware/auth.js";
+import { syncCustomerInvoices } from "../services/invoiceSync.js";
 
 const router = Router();
 router.use(authRequired);
@@ -34,12 +35,20 @@ router.post(
     const exists = await Customer.findById(req.body.customer);
     if (!exists) return res.status(404).json({ message: "Customer not found" });
     const { invoice, ...rest } = req.body;
+    if (invoice) {
+      const inv = await Invoice.findById(invoice).select("customer").lean();
+      if (!inv) return res.status(404).json({ message: "Invoice not found" });
+      if (String(inv.customer) !== String(req.body.customer)) {
+        return res.status(400).json({ message: "Invoice does not belong to this customer" });
+      }
+    }
     const entry = await PaymentEntry.create({
       ...rest,
       paidAt: new Date(req.body.paidAt),
       ...(invoice ? { invoice } : {}),
+      createdBy: actorUsername(req),
     });
-    await closeInvoicesWhenAccountSettled(req.body.customer);
+    await syncCustomerInvoices(req.body.customer);
     res.status(201).json(entry);
   }
 );
@@ -50,6 +59,7 @@ router.delete("/:id", adminOnly, async (req, res) => {
   }
   const d = await PaymentEntry.findByIdAndDelete(req.params.id);
   if (!d) return res.status(404).json({ message: "Not found" });
+  if (d.customer) await syncCustomerInvoices(d.customer);
   res.status(204).send();
 });
 

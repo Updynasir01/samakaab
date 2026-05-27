@@ -6,6 +6,8 @@ import Invoice from "../models/Invoice.js";
 import Customer from "../models/Customer.js";
 import { authRequired } from "../middleware/auth.js";
 import { getBalancesForCustomers } from "../services/balance.js";
+import { computeMoneyReceived } from "../services/moneyTotals.js";
+import { excludedPaymentNoteFilter } from "../services/balance.js";
 
 const router = Router();
 router.use(authRequired);
@@ -42,7 +44,7 @@ router.get(
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         PaymentEntry.aggregate([
-          { $match: { paidAt: { $gte: start, $lte: end } } },
+          { $match: { paidAt: { $gte: start, $lte: end }, ...excludedPaymentNoteFilter() } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         Invoice.aggregate([
@@ -65,8 +67,8 @@ router.get(
     const inv = invoiceAgg[0] || {};
     const totalSales = inv.totalSales || 0;
     const totalPaidAtSale = inv.totalPaidAtSale || 0;
-    /** All cash in for the period: till (invoice) + recorded payments — same idea as dashboard. */
-    const totalMoneyReceived = totalPaidAtSale + totalPaymentsRecorded;
+    /** All cash in for the period: till (invoice) + effective recorded payments — same idea as dashboard. */
+    const totalMoneyReceived = computeMoneyReceived(totalPaidAtSale, totalPaymentsRecorded);
 
     const customers = await Customer.find().lean();
     const ids = customers.map((c) => c._id);
@@ -134,7 +136,7 @@ router.get(
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
       PaymentEntry.aggregate([
-        { $match: { paidAt: { $gte: start, $lte: end } } },
+        { $match: { paidAt: { $gte: start, $lte: end }, ...excludedPaymentNoteFilter() } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
       Invoice.aggregate([
@@ -158,7 +160,7 @@ router.get(
         { $sort: { _id: 1 } },
       ]),
       PaymentEntry.aggregate([
-        { $match: { paidAt: { $gte: start, $lte: end } } },
+        { $match: { paidAt: { $gte: start, $lte: end }, ...excludedPaymentNoteFilter() } },
         {
           $group: {
             _id: { $month: "$paidAt" },
@@ -196,7 +198,7 @@ router.get(
     const yearlyTotalSales = yInv.totalSales || 0;
     const yearlyTotalPaidAtSale = yInv.totalPaidAtSale || 0;
     const yearlyPaymentsRecorded = payAgg[0]?.total || 0;
-    const yearlyMoneyReceived = yearlyTotalPaidAtSale + yearlyPaymentsRecorded;
+    const yearlyMoneyReceived = computeMoneyReceived(yearlyTotalPaidAtSale, yearlyPaymentsRecorded);
 
     res.json({
       year,

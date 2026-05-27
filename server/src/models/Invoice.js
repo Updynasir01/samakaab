@@ -26,6 +26,7 @@ const invoiceSchema = new mongoose.Schema(
     paymentStatus: { type: String, enum: ["paid", "partial", "unpaid"], required: true },
     date: { type: Date, required: true },
     note: { type: String, trim: true, default: "" },
+    createdBy: { type: String, trim: true, default: "" },
     creditEntry: { type: mongoose.Schema.Types.ObjectId, ref: "CreditEntry", default: null },
   },
   { timestamps: true }

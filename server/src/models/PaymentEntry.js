@@ -7,6 +7,7 @@ const paymentEntrySchema = new mongoose.Schema(
     paidAt: { type: Date, required: true },
     note: { type: String, trim: true, default: "" },
     invoice: { type: mongoose.Schema.Types.ObjectId, ref: "Invoice", default: null },
+    createdBy: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );

@@ -8,6 +8,7 @@ const creditEntrySchema = new mongoose.Schema(
     dateOfCredit: { type: Date, required: true },
     expectedPayDate: { type: Date, required: true },
     invoice: { type: mongoose.Schema.Types.ObjectId, ref: "Invoice", default: null },
+    createdBy: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );

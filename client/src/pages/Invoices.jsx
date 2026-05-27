@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { invoicesApi } from "../api.js";
-import { formatMoney } from "../util.js";
+import { formatMoney, invoiceMatchesFilter, enteredByLabel } from "../util.js";
 
 function statusLabel(s) {
   if (s === "paid") return <span className="badge badge-ok">Paid</span>;
@@ -12,6 +12,14 @@ function statusLabel(s) {
 export default function Invoices() {
   const [list, setList] = useState([]);
   const [err, setErr] = useState("");
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("");
+
+  const filtered = useMemo(
+    () => list.filter((inv) => invoiceMatchesFilter(inv, q, { status: statusFilter, date: dateFilter })),
+    [list, q, statusFilter, dateFilter]
+  );
 
   useEffect(() => {
     invoicesApi
@@ -40,6 +48,57 @@ export default function Invoices() {
       </p>
       {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
       <div className="card" style={{ marginTop: "1rem" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "0.75rem",
+            flexWrap: "wrap",
+            alignItems: "flex-end",
+            marginBottom: "0.75rem",
+          }}
+        >
+          <div style={{ flex: "1 1 220px", minWidth: 200 }}>
+            <label htmlFor="inv-search">Search invoices</label>
+            <input
+              id="inv-search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Customer, invoice #, user, status…"
+            />
+          </div>
+          <div style={{ flex: "0 1 160px", minWidth: 150 }}>
+            <label htmlFor="inv-date">Invoice date</label>
+            <input id="inv-date" type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
+          </div>
+          <div style={{ flex: "0 1 160px", minWidth: 140 }}>
+            <label htmlFor="inv-status">Status</label>
+            <select id="inv-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="all">All</option>
+              <option value="paid">Paid</option>
+              <option value="partial">Partial</option>
+              <option value="unpaid">Unpaid</option>
+            </select>
+          </div>
+          {(q.trim() || statusFilter !== "all" || dateFilter) && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ marginBottom: 2 }}
+              onClick={() => {
+                setQ("");
+                setStatusFilter("all");
+                setDateFilter("");
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {list.length > 0 && (
+          <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+            Showing {filtered.length} of {list.length} invoice{list.length === 1 ? "" : "s"}
+          </p>
+        )}
         <div className="table-wrap">
           <table>
             <thead>
@@ -49,13 +108,21 @@ export default function Invoices() {
                 <th>Customer</th>
                 <th>Total</th>
                 <th>Paid at sale</th>
-                <th>Payment recorded</th>
-                <th>On credit</th>
+                <th>Later payments</th>
+                <th>Remaining</th>
                 <th>Status</th>
+                <th>Entered by</th>
               </tr>
             </thead>
             <tbody>
-              {list.map((inv) => (
+              {filtered.length === 0 && list.length > 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ color: "var(--muted)" }}>
+                    No invoices match your search.
+                  </td>
+                </tr>
+              ) : (
+              filtered.map((inv) => (
                 <tr key={inv._id}>
                   <td>
                     <Link to={`/invoices/${inv._id}`}>#{inv.invoiceNumber}</Link>
@@ -75,8 +142,10 @@ export default function Invoices() {
                   </td>
                   <td>{inv.creditAmount > 0 ? formatMoney(inv.creditAmount) : "—"}</td>
                   <td>{statusLabel(inv.paymentStatus)}</td>
+                  <td>{enteredByLabel(inv)}</td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>

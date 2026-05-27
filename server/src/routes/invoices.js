@@ -5,7 +5,9 @@ import Invoice from "../models/Invoice.js";
 import CreditEntry from "../models/CreditEntry.js";
 import PaymentEntry from "../models/PaymentEntry.js";
 import Customer from "../models/Customer.js";
-import { authRequired, adminOnly } from "../middleware/auth.js";
+import { authRequired, adminOnly, actorUsername } from "../middleware/auth.js";
+import { excludedPaymentNoteFilter, BALANCE_EPS } from "../services/balance.js";
+import { syncCustomersWithOpenDebt, syncCustomerInvoices } from "../services/invoiceSync.js";
 
 const router = Router();
 router.use(authRequired);
@@ -35,7 +37,7 @@ async function attachPaymentsRecordedToInvoices(list) {
   if (!list.length) return list;
   const ids = list.map((i) => i._id);
   const agg = await PaymentEntry.aggregate([
-    { $match: { invoice: { $in: ids } } },
+    { $match: { invoice: { $in: ids }, ...excludedPaymentNoteFilter() } },
     { $group: { _id: "$invoice", total: { $sum: "$amount" } } },
   ]);
   const map = new Map(agg.map((a) => [String(a._id), round2(a.total)]));
@@ -49,6 +51,7 @@ router.get(
   "/",
   query("limit").optional().isInt({ min: 1, max: 200 }),
   async (req, res) => {
+    await syncCustomersWithOpenDebt();
     const limit = Number(req.query.limit) || 80;
     const list = await Invoice.find()
       .populate("customer", "fullName phone")
@@ -65,6 +68,7 @@ router.get("/customer/:customerId", async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.customerId)) {
     return res.status(400).json({ message: "Invalid customer id" });
   }
+  await syncCustomerInvoices(req.params.customerId);
   const list = await Invoice.find({ customer: req.params.customerId })
     .sort({ date: -1 })
     .lean();
@@ -140,7 +144,7 @@ router.post(
     }
 
     const creditAmount = round2(total - paidAtSale);
-    const EPS = 0.005;
+    const EPS = BALANCE_EPS;
 
     if (creditAmount > EPS && !customerId) {
       return res.status(400).json({
@@ -176,6 +180,7 @@ router.post(
       invoiceNumber = await nextInvoiceNumber();
     }
 
+    const enteredBy = actorUsername(req);
     const [inv] = await Invoice.create([
       {
         invoiceNumber,
@@ -188,6 +193,7 @@ router.post(
         paymentStatus,
         date,
         note,
+        createdBy: enteredBy,
         creditEntry: null,
       },
     ]);
@@ -202,6 +208,7 @@ router.post(
             dateOfCredit: date,
             expectedPayDate,
             invoice: inv._id,
+            createdBy: enteredBy,
           },
         ]);
         inv.creditEntry = credit[0]._id;
@@ -221,6 +228,7 @@ router.post(
             paidAt: date,
             note: note ? `Invoice #${invoiceNumber} (paid in full). ${note}` : `Invoice #${invoiceNumber} paid in full`,
             invoice: inv._id,
+            createdBy: enteredBy,
           },
         ]);
       }
@@ -242,6 +250,7 @@ router.get(
   "/open",
   query("limit").optional().isInt({ min: 1, max: 200 }),
   async (req, res) => {
+    await syncCustomersWithOpenDebt();
     const limit = Number(req.query.limit) || 100;
     const list = await Invoice.find({
       lineItems: { $elemMatch: { delivered: { $ne: true } } },
@@ -262,9 +271,11 @@ router.get("/:id", async (req, res) => {
   }
   const inv = await Invoice.findById(req.params.id).populate("customer", "fullName phone address notes").lean();
   if (!inv) return res.status(404).json({ message: "Invoice not found" });
-  await attachPaymentsRecordedToInvoices([inv]);
-  attachDeliverySummaryToInvoices([inv]);
-  res.json(inv);
+  if (inv.customer?._id) await syncCustomerInvoices(inv.customer._id);
+  const fresh = await Invoice.findById(req.params.id).populate("customer", "fullName phone address notes").lean();
+  await attachPaymentsRecordedToInvoices([fresh]);
+  attachDeliverySummaryToInvoices([fresh]);
+  res.json(fresh);
 });
 
 router.patch(
@@ -304,11 +315,14 @@ router.delete("/:id", adminOnly, async (req, res) => {
   const inv = await Invoice.findById(req.params.id);
   if (!inv) return res.status(404).json({ message: "Not found" });
 
+  const customerId = inv.customer;
+
   await Promise.all([
     inv.creditEntry ? CreditEntry.findByIdAndDelete(inv.creditEntry) : Promise.resolve(),
     PaymentEntry.deleteMany({ invoice: inv._id }),
     Invoice.findByIdAndDelete(inv._id),
   ]);
+  if (customerId) await syncCustomerInvoices(customerId);
   res.status(204).send();
 });
 

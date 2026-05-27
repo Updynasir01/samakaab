@@ -1,349 +1,306 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { jsPDF } from "jspdf";
 import { reportsApi } from "../api.js";
 import { useCompanyProfile } from "../companySettings.jsx";
-import { formatMoney } from "../util.js";
+import { formatMoney, safeFileSegment } from "../util.js";
+import {
+  buildMonthlyReportHtml,
+  buildYearlyReportHtml,
+  printReportFromHtml,
+  downloadReportWord,
+} from "../reportExport.js";
+
+const MONTHS = Array.from({ length: 12 }, (_, i) => ({
+  value: i + 1,
+  label: new Date(2000, i, 1).toLocaleString("default", { month: "long" }),
+}));
+
+function StatCard({ label, value, hint, tone = "default" }) {
+  return (
+    <div className={`reportStat ${tone !== "default" ? tone : ""}`}>
+      <div className="reportStatLabel">{label}</div>
+      <div className="reportStatValue">{value}</div>
+      {hint ? <div className="reportStatHint">{hint}</div> : null}
+    </div>
+  );
+}
+
+function DebtorsTable({ rows, showPhone = true }) {
+  if (!rows?.length) {
+    return <p style={{ color: "var(--muted)", margin: 0 }}>No customers owe money right now.</p>;
+  }
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Customer</th>
+            {showPhone ? <th>Phone</th> : null}
+            <th>Balance owed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => (
+            <tr key={c._id}>
+              <td>
+                <Link to={`/customers/${c._id}`}>{c.fullName}</Link>
+              </td>
+              {showPhone ? <td>{c.phone || "—"}</td> : null}
+              <td>{formatMoney(c.balance)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function Reports() {
   const { profile } = useCompanyProfile();
   const now = new Date();
+  const [tab, setTab] = useState("month");
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [yearlyYear, setYearlyYear] = useState(now.getFullYear());
   const [monthly, setMonthly] = useState(null);
   const [yearly, setYearly] = useState(null);
   const [err, setErr] = useState("");
+  const [loadingMonth, setLoadingMonth] = useState(true);
+  const [loadingYear, setLoadingYear] = useState(true);
 
   useEffect(() => {
     setErr("");
+    setLoadingMonth(true);
     reportsApi
       .monthly(year, month)
       .then(setMonthly)
-      .catch((e) => setErr(e.message));
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoadingMonth(false));
   }, [year, month]);
 
   useEffect(() => {
     setErr("");
+    setLoadingYear(true);
     reportsApi
       .yearly(yearlyYear)
       .then(setYearly)
-      .catch((e) => setErr(e.message));
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoadingYear(false));
   }, [yearlyYear]);
 
-  function pdfMonthly() {
+  const monthLabel = MONTHS.find((m) => m.value === month)?.label || "";
+  const monthLabels = MONTHS.map((m) => m.label);
+  const periodMonthLabel = monthly?.period?.label || `${year}-${String(month).padStart(2, "0")}`;
+
+  function printMonthly() {
     if (!monthly) return;
-    const doc = new jsPDF();
-    let y = 14;
-    doc.setFontSize(16);
-    doc.text(`${profile.legalName} — Monthly report`, 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Period: ${monthly.period.label}`, 14, y);
-    y += 6;
-    if (monthly.transactionCounts) {
-      const tc = monthly.transactionCounts;
-      doc.text(
-        `Transactions this month: ${tc.invoices} invoice(s), ${tc.creditEntries} credit entr${tc.creditEntries === 1 ? "y" : "ies"}, ${tc.paymentEntries} payment entr${tc.paymentEntries === 1 ? "y" : "ies"}.`,
-        14,
-        y
-      );
-      y += 5;
-    }
-    doc.setFont("helvetica", "bold");
-    doc.text("Sales & money", 14, y);
-    y += 5;
-    doc.setFont("helvetica", "normal");
-    doc.text(`Total sales (invoice totals): ${formatMoney(monthly.totalSales ?? 0)}`, 14, y);
-    y += 5;
-    doc.text(`Credit given (credit entries in month): ${formatMoney(monthly.totalCreditGiven)}`, 14, y);
-    y += 5;
-    doc.text(`Paid at sale (cash on invoices in month): ${formatMoney(monthly.totalPaidAtSale ?? 0)}`, 14, y);
-    y += 5;
-    doc.text(`Payments recorded (Add payment, in month): ${formatMoney(monthly.totalPaymentsRecorded ?? monthly.totalCashReceived ?? 0)}`, 14, y);
-    y += 5;
-    doc.setFont("helvetica", "bold");
-    doc.text(`Total money received (paid at sale + payments): ${formatMoney(monthly.totalMoneyReceived ?? 0)}`, 14, y);
-    y += 6;
-    doc.setFont("helvetica", "normal");
-    doc.text(`Outstanding balance (all customers, current): ${formatMoney(monthly.totalOutstandingBalance)}`, 14, y);
-    y += 8;
-    doc.text("Customers who owe:", 14, y);
-    y += 5;
-    monthly.customersWhoOwe.forEach((c, i) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 14;
-      }
-      doc.text(`${i + 1}. ${c.fullName} — ${formatMoney(c.balance)}`, 18, y);
-      y += 5;
-    });
-    doc.save(`samakaab-monthly-${monthly.period.label}.pdf`);
+    const html = buildMonthlyReportHtml(monthly, profile, { monthLabel, year });
+    printReportFromHtml(html);
   }
 
-  function pdfYearly() {
+  function printYearly() {
     if (!yearly) return;
-    const doc = new jsPDF();
-    let y = 14;
-    doc.setFontSize(16);
-    doc.text(`${profile.legalName} — Yearly report`, 14, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text(`Year: ${yearly.year}`, 14, y);
-    y += 6;
-    if (yearly.transactionCounts) {
-      const tc = yearly.transactionCounts;
-      doc.text(
-        `Transactions this year: ${tc.invoices} invoice(s), ${tc.creditEntries} credit entr${tc.creditEntries === 1 ? "y" : "ies"}, ${tc.paymentEntries} payment entr${tc.paymentEntries === 1 ? "y" : "ies"}.`,
-        14,
-        y
-      );
-      y += 5;
-    }
-    doc.setFont("helvetica", "bold");
-    doc.text("Sales & money (year)", 14, y);
-    y += 5;
-    doc.setFont("helvetica", "normal");
-    doc.text(`Total sales (invoice totals): ${formatMoney(yearly.yearlyTotalSales ?? 0)}`, 14, y);
-    y += 5;
-    doc.text(`Credit given: ${formatMoney(yearly.yearlyCreditTotal)}`, 14, y);
-    y += 5;
-    doc.text(`Paid at sale (on invoices): ${formatMoney(yearly.yearlyTotalPaidAtSale ?? 0)}`, 14, y);
-    y += 5;
-    doc.text(`Payments recorded: ${formatMoney(yearly.yearlyPaymentsRecorded ?? yearly.yearlyIncome ?? 0)}`, 14, y);
-    y += 5;
-    doc.setFont("helvetica", "bold");
-    doc.text(`Total money received (paid at sale + payments): ${formatMoney(yearly.yearlyMoneyReceived ?? 0)}`, 14, y);
-    y += 8;
-    doc.setFont("helvetica", "normal");
-    doc.text("Biggest debtors:", 14, y);
-    y += 5;
-    yearly.biggestDebtors.forEach((c, i) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 14;
-      }
-      doc.text(`${i + 1}. ${c.fullName} — ${formatMoney(c.balance)}`, 18, y);
-      y += 5;
-    });
-    doc.save(`samakaab-yearly-${yearly.year}.pdf`);
+    const html = buildYearlyReportHtml(yearly, profile, { year: yearlyYear, monthLabels });
+    printReportFromHtml(html);
+  }
+
+  function downloadMonthlyWord() {
+    if (!monthly) return;
+    const html = buildMonthlyReportHtml(monthly, profile, { monthLabel, year });
+    downloadReportWord(html, `${safeFileSegment(profile.brandName)}-report-${periodMonthLabel}.doc`);
+  }
+
+  function downloadYearlyWord() {
+    if (!yearly) return;
+    const html = buildYearlyReportHtml(yearly, profile, { year: yearlyYear, monthLabels });
+    downloadReportWord(html, `${safeFileSegment(profile.brandName)}-report-${yearlyYear}.doc`);
   }
 
   return (
-    <div>
+    <div className="reportsPage">
       <h1 style={{ marginTop: 0 }}>Reports</h1>
+      <p style={{ color: "var(--muted)", marginTop: "-0.25rem", maxWidth: 560 }}>
+        On-screen summary for quick viewing. Use <strong>Print report</strong> for a formal company letter (like a bank statement).
+      </p>
+
       {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
 
-      <div className="card" style={{ marginBottom: "1.25rem" }}>
-        <h2 style={{ marginTop: 0, fontSize: "1.1rem" }}>Monthly</h2>
-        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" }}>
-          <div>
-            <label>Year</label>
-            <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} />
-          </div>
-          <div>
-            <label>Month</label>
-            <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-              {Array.from({ length: 12 }, (_, i) => (
-                <option key={i + 1} value={i + 1}>
-                  {new Date(2000, i, 1).toLocaleString("default", { month: "long" })}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {monthly && (
-          <>
-            <div
-              style={{
-                display: "grid",
-                gap: "0.65rem",
-                marginBottom: "1rem",
-                padding: "0.75rem 1rem",
-                background: "var(--bg-soft)",
-                borderRadius: "var(--radius)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--muted)" }}>Sales & money (this month)</div>
-              <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--muted)", lineHeight: 1.45 }}>
-                Each amount is its own kind of activity (not one blended number): invoice sales, credit recorded, cash taken at sale, and payments added later.
-                {monthly.transactionCounts && (
-                  <>
-                    {" "}
-                    This month:{" "}
-                    <strong>{monthly.transactionCounts.invoices}</strong> invoice(s),{" "}
-                    <strong>{monthly.transactionCounts.creditEntries}</strong> credit entr
-                    {monthly.transactionCounts.creditEntries === 1 ? "y" : "ies"},{" "}
-                    <strong>{monthly.transactionCounts.paymentEntries}</strong> payment entr
-                    {monthly.transactionCounts.paymentEntries === 1 ? "y" : "ies"}.
-                  </>
-                )}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Total sales (all invoices):</strong> {formatMoney(monthly.totalSales ?? 0)}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Credit given (credit entries dated this month):</strong> {formatMoney(monthly.totalCreditGiven)}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Paid at sale (cash on invoices this month):</strong> {formatMoney(monthly.totalPaidAtSale ?? 0)}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Payments recorded (Add payment, this month):</strong>{" "}
-                {formatMoney(monthly.totalPaymentsRecorded ?? monthly.totalCashReceived ?? 0)}
-              </p>
-              <p style={{ margin: 0, fontSize: "1.05rem", paddingTop: "0.25rem", borderTop: "1px solid var(--border)" }}>
-                <strong>Total money received:</strong> {formatMoney(monthly.totalMoneyReceived ?? 0)}{" "}
-                <span style={{ fontSize: "0.8rem", color: "var(--muted)", fontWeight: 400 }}>
-                  (paid at sale + recorded payments)
-                </span>
-              </p>
-            </div>
-            <p>
-              <strong>Outstanding balance (all customers, current snapshot):</strong> {formatMoney(monthly.totalOutstandingBalance)}
-            </p>
-            <h3 style={{ fontSize: "1rem" }}>Customers who owe</h3>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Phone</th>
-                    <th>Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthly.customersWhoOwe.map((c) => (
-                    <tr key={c._id}>
-                      <td>
-                        <Link to={`/customers/${c._id}`}>{c.fullName}</Link>
-                      </td>
-                      <td>{c.phone}</td>
-                      <td>{formatMoney(c.balance)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <button type="button" className="btn btn-primary" style={{ marginTop: "0.75rem" }} onClick={pdfMonthly}>
-              Download PDF
-            </button>
-            <button type="button" className="btn" style={{ marginTop: "0.75rem", marginLeft: "0.5rem" }} onClick={() => window.print()}>
-              Print
-            </button>
-          </>
-        )}
+      <div className="reportTabs">
+        <button type="button" className={`reportTab ${tab === "month" ? "isActive" : ""}`} onClick={() => setTab("month")}>
+          Monthly
+        </button>
+        <button type="button" className={`reportTab ${tab === "year" ? "isActive" : ""}`} onClick={() => setTab("year")}>
+          Yearly
+        </button>
       </div>
 
-      <div className="card">
-        <h2 style={{ marginTop: 0, fontSize: "1.1rem" }}>Yearly</h2>
-        <div style={{ marginBottom: "1rem" }}>
-          <label>Year</label>
-          <input type="number" value={yearlyYear} onChange={(e) => setYearlyYear(Number(e.target.value))} style={{ maxWidth: 120 }} />
-        </div>
-        {yearly && (
-          <>
-            <div
-              style={{
-                display: "grid",
-                gap: "0.65rem",
-                marginBottom: "1rem",
-                padding: "0.75rem 1rem",
-                background: "var(--bg-soft)",
-                borderRadius: "var(--radius)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--muted)" }}>Sales & money (full year)</div>
-              <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--muted)", lineHeight: 1.45 }}>
-                Same breakdown as monthly: sales, credits, paid at sale, and recorded payments are separate totals.
-                {yearly.transactionCounts && (
-                  <>
-                    {" "}
-                    This year:{" "}
-                    <strong>{yearly.transactionCounts.invoices}</strong> invoice(s),{" "}
-                    <strong>{yearly.transactionCounts.creditEntries}</strong> credit entr
-                    {yearly.transactionCounts.creditEntries === 1 ? "y" : "ies"},{" "}
-                    <strong>{yearly.transactionCounts.paymentEntries}</strong> payment entr
-                    {yearly.transactionCounts.paymentEntries === 1 ? "y" : "ies"}.
-                  </>
-                )}
+      {tab === "month" && (
+        <div className="card">
+          <div className="reportPeriodRow">
+            <div>
+              <label htmlFor="rep-year">Year</label>
+              <input id="rep-year" type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} style={{ width: 100 }} />
+            </div>
+            <div>
+              <label htmlFor="rep-month">Month</label>
+              <select id="rep-month" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+                {MONTHS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {loadingMonth ? (
+            <p style={{ color: "var(--muted)" }}>Loading…</p>
+          ) : monthly ? (
+            <>
+              <p style={{ margin: "0 0 1rem", fontSize: "0.9rem", color: "var(--muted)" }}>
+                <strong style={{ color: "var(--text)" }}>{monthLabel} {year}</strong>
+                {" · "}
+                {monthly.transactionCounts?.invoices ?? 0} invoice
+                {(monthly.transactionCounts?.invoices ?? 0) === 1 ? "" : "s"}
               </p>
-              <p style={{ margin: 0 }}>
-                <strong>Total sales (all invoices):</strong> {formatMoney(yearly.yearlyTotalSales ?? 0)}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Credit given:</strong> {formatMoney(yearly.yearlyCreditTotal)}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Paid at sale (on invoices):</strong> {formatMoney(yearly.yearlyTotalPaidAtSale ?? 0)}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Payments recorded:</strong> {formatMoney(yearly.yearlyPaymentsRecorded ?? yearly.yearlyIncome ?? 0)}
-              </p>
-              <p style={{ margin: 0, fontSize: "1.05rem", paddingTop: "0.25rem", borderTop: "1px solid var(--border)" }}>
-                <strong>Total money received:</strong> {formatMoney(yearly.yearlyMoneyReceived ?? 0)}{" "}
-                <span style={{ fontSize: "0.8rem", color: "var(--muted)", fontWeight: 400 }}>
-                  (paid at sale + recorded payments)
+
+              <div className="reportStatGrid">
+                <StatCard
+                  tone="accent"
+                  label="Money received"
+                  value={formatMoney(monthly.totalMoneyReceived ?? 0)}
+                  hint="Cash at sale + payments recorded this month"
+                />
+                <StatCard
+                  label="Total sales"
+                  value={formatMoney(monthly.totalSales ?? 0)}
+                  hint="All invoice totals this month"
+                />
+                <StatCard
+                  label="Credit given"
+                  value={formatMoney(monthly.totalCreditGiven ?? 0)}
+                  hint="New debt added this month"
+                />
+              </div>
+
+              <div className="reportStatGrid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+                <StatCard label="Cash at sale" value={formatMoney(monthly.totalPaidAtSale ?? 0)} hint="Paid when invoice was created" />
+                <StatCard label="Payments later" value={formatMoney(monthly.totalPaymentsRecorded ?? 0)} hint="Recorded on customer page" />
+                <StatCard
+                  tone="danger"
+                  label="Still owed (today)"
+                  value={formatMoney(monthly.totalOutstandingBalance ?? 0)}
+                  hint="All customers — current balance"
+                />
+              </div>
+
+              <h2 className="reportSectionTitle">Customers who owe</h2>
+              <DebtorsTable rows={monthly.customersWhoOwe} />
+
+              <div className="reportActions no-print">
+                <button type="button" className="btn btn-primary" onClick={printMonthly}>
+                  Print report
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={downloadMonthlyWord}>
+                  Download Word
+                </button>
+                <span style={{ fontSize: "0.8rem", color: "var(--muted)", alignSelf: "center" }}>
+                  Print opens a formal letter with your company header — choose &quot;Save as PDF&quot; in the print dialog if needed.
                 </span>
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
+
+      {tab === "year" && (
+        <div className="card">
+          <div className="reportPeriodRow">
+            <div>
+              <label htmlFor="rep-yearly">Year</label>
+              <input
+                id="rep-yearly"
+                type="number"
+                value={yearlyYear}
+                onChange={(e) => setYearlyYear(Number(e.target.value))}
+                style={{ width: 100 }}
+              />
+            </div>
+          </div>
+
+          {loadingYear ? (
+            <p style={{ color: "var(--muted)" }}>Loading…</p>
+          ) : yearly ? (
+            <>
+              <p style={{ margin: "0 0 1rem", fontSize: "0.9rem", color: "var(--muted)" }}>
+                <strong style={{ color: "var(--text)" }}>{yearly.year}</strong>
+                {" · "}
+                {yearly.transactionCounts?.invoices ?? 0} invoice
+                {(yearly.transactionCounts?.invoices ?? 0) === 1 ? "" : "s"} this year
               </p>
-            </div>
-            <h3 style={{ fontSize: "1rem" }}>Biggest debtors</h3>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {yearly.biggestDebtors.map((c) => (
-                    <tr key={c._id}>
-                      <td>
-                        <Link to={`/customers/${c._id}`}>{c.fullName}</Link>
-                      </td>
-                      <td>{formatMoney(c.balance)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {yearly.salesTrendsByMonth?.length > 0 && (
-              <>
-                <h3 style={{ fontSize: "1rem" }}>Sales by month (invoice totals)</h3>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Month</th>
-                        <th>Total sales</th>
-                        <th>Paid at sale</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {yearly.salesTrendsByMonth.map((row) => (
-                        <tr key={row.month}>
-                          <td>{new Date(2000, row.month - 1, 1).toLocaleString("default", { month: "long" })}</td>
-                          <td>{formatMoney(row.totalSales ?? 0)}</td>
-                          <td>{formatMoney(row.paidAtSale ?? 0)}</td>
+
+              <div className="reportStatGrid">
+                <StatCard
+                  tone="accent"
+                  label="Money received"
+                  value={formatMoney(yearly.yearlyMoneyReceived ?? 0)}
+                  hint="Cash at sale + payments recorded this year"
+                />
+                <StatCard label="Total sales" value={formatMoney(yearly.yearlyTotalSales ?? 0)} hint="All invoice totals" />
+                <StatCard label="Credit given" value={formatMoney(yearly.yearlyCreditTotal ?? 0)} hint="New debt added this year" />
+              </div>
+
+              <div className="reportStatGrid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+                <StatCard label="Cash at sale" value={formatMoney(yearly.yearlyTotalPaidAtSale ?? 0)} />
+                <StatCard label="Payments later" value={formatMoney(yearly.yearlyPaymentsRecorded ?? 0)} />
+              </div>
+
+              <h2 className="reportSectionTitle">Top customers who owe</h2>
+              <DebtorsTable rows={yearly.biggestDebtors} showPhone={false} />
+
+              {yearly.salesTrendsByMonth?.length > 0 && (
+                <>
+                  <h2 className="reportSectionTitle" style={{ marginTop: "1.5rem" }}>
+                    Sales by month
+                  </h2>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Month</th>
+                          <th>Sales</th>
+                          <th>Cash at sale</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-            <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
-              Credit and payment trends by month are available from the API for charts.
-            </p>
-            <button type="button" className="btn btn-primary" style={{ marginTop: "0.75rem" }} onClick={pdfYearly}>
-              Download PDF
-            </button>
-          </>
-        )}
-      </div>
+                      </thead>
+                      <tbody>
+                        {yearly.salesTrendsByMonth.map((row) => (
+                          <tr key={row.month}>
+                            <td>{MONTHS[row.month - 1]?.label || row.month}</td>
+                            <td>{formatMoney(row.totalSales ?? 0)}</td>
+                            <td>{formatMoney(row.paidAtSale ?? 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              <div className="reportActions no-print">
+                <button type="button" className="btn btn-primary" onClick={printYearly}>
+                  Print report
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={downloadYearlyWord}>
+                  Download Word
+                </button>
+                <span style={{ fontSize: "0.8rem", color: "var(--muted)", alignSelf: "center" }}>
+                  Formal company letter layout — not the dashboard view.
+                </span>
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

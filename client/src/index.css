@@ -299,6 +299,35 @@ a.dashboard-debt-btn:hover {
   margin-top: 0.9rem;
 }
 
+.passwordFieldWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.passwordFieldWrap input {
+  width: 100%;
+  padding-right: 4.25rem;
+}
+
+.passwordToggle {
+  position: absolute;
+  right: 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.passwordToggle:hover {
+  color: var(--accent);
+  background: rgba(26, 143, 106, 0.08);
+}
+
 .loginActions {
   margin-top: 1.1rem;
   display: grid;
@@ -325,6 +354,107 @@ a.dashboard-debt-btn:hover {
   .grid-5 {
     grid-template-columns: repeat(5, 1fr);
   }
+  .reportStatGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Reports page */
+.reportTabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 1.25rem;
+  padding: 0.25rem;
+  background: var(--bg-soft);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  width: fit-content;
+}
+
+.reportTab {
+  border: none;
+  background: transparent;
+  padding: 0.5rem 1rem;
+  border-radius: 9px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.reportTab.isActive {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.reportStatGrid {
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.reportStat {
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.reportStatLabel {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.reportStatValue {
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.reportStatHint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
+}
+
+.reportStat.accent {
+  border-top: 3px solid var(--accent);
+}
+
+.reportStat.warning {
+  border-top: 3px solid var(--warning);
+}
+
+.reportStat.danger {
+  border-top: 3px solid var(--danger);
+}
+
+.reportSectionTitle {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.reportPeriodRow {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 1.25rem;
+}
+
+.reportPeriodRow label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.reportActions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
 }
 
 @media (max-width: 767px) {

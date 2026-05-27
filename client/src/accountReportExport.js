@@ -10,7 +10,7 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function buildLedgerRows(rows) {
+function buildLedgerRows(rows, finalBalance) {
   const events = (rows || [])
     .map((r) => {
       const amount = Number(r.amount || 0);
@@ -21,6 +21,7 @@ function buildLedgerRows(rows) {
         date: r.date || "—",
         dis: r.dis || "—",
         invoiceRef,
+        orderNumber: String(r.orderNumber || "").trim(),
         amountDue: isCredit ? amount : 0,
         totalPaid: isCredit ? 0 : amount,
       };
@@ -28,10 +29,15 @@ function buildLedgerRows(rows) {
     .sort((a, b) => a.sortTime - b.sortTime);
 
   let runningOutstanding = 0;
-  return events.map((e) => {
+  const ledger = events.map((e) => {
     runningOutstanding += e.amountDue - e.totalPaid;
     return { ...e, outstanding: Math.max(0, runningOutstanding) };
   });
+
+  if (ledger.length && finalBalance != null && !Number.isNaN(Number(finalBalance))) {
+    ledger[ledger.length - 1].outstanding = Math.max(0, Number(finalBalance));
+  }
+  return ledger;
 }
 
 /**
@@ -42,13 +48,14 @@ function buildLedgerRows(rows) {
 export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayments, balance }, company = DEFAULT_COMPANY) {
   const c = company || DEFAULT_COMPANY;
   const today = new Date().toLocaleDateString();
-  const ledgerRows = buildLedgerRows(rows);
+  const ledgerRows = buildLedgerRows(rows, balance);
   const rowHtml = ledgerRows
     .map(
       (r) => `<tr>
     <td class="col-date">${escapeHtml(r.date)}</td>
     <td class="col-dis">${escapeHtml(r.dis)}</td>
     <td class="col-inv">${escapeHtml(r.invoiceRef)}</td>
+    <td class="col-order">${escapeHtml(r.orderNumber || "—")}</td>
     <td class="amount">${r.amountDue ? escapeHtml(formatMoney(r.amountDue)) : ""}</td>
     <td class="amount">${r.totalPaid ? escapeHtml(formatMoney(r.totalPaid)) : ""}</td>
     <td class="amount">${escapeHtml(formatMoney(r.outstanding))}</td>
@@ -97,6 +104,7 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
   table.ledger td.col-date, table.ledger th.col-date { white-space: nowrap; }
   table.ledger td.col-dis, table.ledger th.col-dis { white-space: nowrap; }
   table.ledger td.col-inv, table.ledger th.col-inv { white-space: nowrap; }
+  table.ledger td.col-order, table.ledger th.col-order { white-space: nowrap; }
   table.ledger td.amount, table.ledger th.amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .muted { color: #6b7280; }
 </style>
@@ -116,6 +124,8 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
       <div class="right">
         <div class="rightBoxRow"><span>Date</span><span>${escapeHtml(today)}</span></div>
         <div class="rightValueRow"><span>CURRENT</span><strong>${escapeHtml(formatMoney(balance))}</strong></div>
+        <div class="rightValueRow"><span>Total credit</span><span>${escapeHtml(formatMoney(totalCredit))}</span></div>
+        <div class="rightValueRow"><span>Total paid</span><span>${escapeHtml(formatMoney(totalPayments))}</span></div>
         <div class="rightTotal"><span>Total Outstanding:</span><span>${escapeHtml(formatMoney(balance))}</span></div>
       </div>
     </div>
@@ -125,18 +135,19 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
       <col style="width: 96px" />
       <col style="width: 108px" />
       <col style="width: 76px" />
+      <col style="width: 72px" />
       <col style="width: 88px" />
       <col style="width: 88px" />
       <col style="width: 96px" />
     </colgroup>
     <thead>
-      <tr><th class="col-date">Invoice Date</th><th class="col-dis">Dis</th><th class="col-inv">Invoice #</th><th class="amount">Amount Due</th><th class="amount">Total Paid</th><th class="amount">Outstanding</th></tr>
+      <tr><th class="col-date">Invoice Date</th><th class="col-dis">Dis</th><th class="col-inv">Invoice #</th><th class="col-order">Order No</th><th class="amount">Amount Due</th><th class="amount">Total Paid</th><th class="amount">Outstanding</th></tr>
     </thead>
     <tbody>
       ${
         ledgerRows.length
           ? rowHtml
-          : `<tr><td colspan="6" class="muted">No statement lines yet.</td></tr>`
+          : `<tr><td colspan="7" class="muted">No statement lines yet.</td></tr>`
       }
     </tbody>
   </table>
@@ -174,7 +185,7 @@ export function downloadAccountReportPdf(customer, rows, totals, company = DEFAU
   const m = 12;
   let y = m;
   const now = new Date().toLocaleDateString();
-  const ledgerRows = buildLedgerRows(rows);
+  const ledgerRows = buildLedgerRows(rows, balance);
 
   doc.setFillColor(242, 244, 246);
   doc.rect(m, y - 5, pageW - m * 2, 12, "F");
@@ -208,7 +219,7 @@ export function downloadAccountReportPdf(customer, rows, totals, company = DEFAU
   doc.text(formatMoney(totals.balance), boxX + 64, y + 2, { align: "right" });
   y += 12;
 
-  const col = [32, 28, 26, 26, 26, 30];
+  const col = [30, 26, 24, 22, 24, 24, 28];
   const colX = [m];
   for (let i = 1; i < col.length; i++) colX.push(colX[i - 1] + col[i - 1]);
 
@@ -216,10 +227,10 @@ export function downloadAccountReportPdf(customer, rows, totals, company = DEFAU
   doc.rect(m, y - 4.5, col.reduce((a, b) => a + b, 0), 6, "F");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  const headers = ["Invoice Date", "Dis", "Invoice #", "Amount Due", "Total Paid", "Outstanding"];
+  const headers = ["Invoice Date", "Dis", "Invoice #", "Order No", "Amount Due", "Total Paid", "Outstanding"];
   headers.forEach((h, i) => {
     const x = colX[i];
-    if (i >= 3) doc.text(h, colX[i] + col[i] - 2, y, { align: "right" });
+    if (i >= 4) doc.text(h, colX[i] + col[i] - 2, y, { align: "right" });
     else doc.text(h, x, y);
   });
   y += 3.5;
@@ -237,9 +248,10 @@ export function downloadAccountReportPdf(customer, rows, totals, company = DEFAU
     doc.text(r.date, colX[0], y + 3.5, { maxWidth: col[0] - 1 });
     doc.text(r.dis, colX[1], y + 3.5, { maxWidth: col[1] - 1 });
     doc.text(r.invoiceRef, colX[2], y + 3.5);
-    doc.text(r.amountDue ? formatMoney(r.amountDue) : "", colX[3] + col[3] - 2, y + 3.5, { align: "right" });
-    doc.text(r.totalPaid ? formatMoney(r.totalPaid) : "", colX[4] + col[4] - 2, y + 3.5, { align: "right" });
-    doc.text(formatMoney(r.outstanding), colX[5] + col[5] - 2, y + 3.5, { align: "right" });
+    doc.text(r.orderNumber || "—", colX[3], y + 3.5, { maxWidth: col[3] - 1 });
+    doc.text(r.amountDue ? formatMoney(r.amountDue) : "", colX[4] + col[4] - 2, y + 3.5, { align: "right" });
+    doc.text(r.totalPaid ? formatMoney(r.totalPaid) : "", colX[5] + col[5] - 2, y + 3.5, { align: "right" });
+    doc.text(formatMoney(r.outstanding), colX[6] + col[6] - 2, y + 3.5, { align: "right" });
     y += 5;
   });
 

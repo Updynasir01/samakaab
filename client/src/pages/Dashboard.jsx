@@ -52,7 +52,7 @@ export default function Dashboard() {
           <div style={{ fontSize: "1.45rem", fontWeight: 700 }}>{formatMoney(data.moneyReceived ?? data.pie?.totalPaid)}</div>
           <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "0.35rem" }}>Lacag la helay (wadarta)</div>
           <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.25rem", lineHeight: 1.35 }}>
-            Paid at sale + payments recorded on accounts.{" "}
+            Paid at sale + later payments (duplicates excluded).{" "}
             {data.paidAtSaleAllTime != null && data.paymentsRecordedAllTime != null && (
               <>
                 {formatMoney(data.paidAtSaleAllTime)} + {formatMoney(data.paymentsRecordedAllTime)}
@@ -106,7 +106,7 @@ export default function Dashboard() {
         <div className="card">
           <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Received vs invoice debt (all time)</h2>
           <p style={{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "var(--muted)" }}>
-            Total cash in (paid at sale + recorded payments) compared with open invoice balances.
+            Open invoice credit only (excludes manual account credits). Account balance total may differ.
           </p>
           <div style={{ height: 260 }}>
             {pieData.length ? (

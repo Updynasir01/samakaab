@@ -3,7 +3,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { invoicesApi } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { useCompanyProfile } from "../companySettings.jsx";
-import { formatMoney } from "../util.js";
+import { formatMoney, enteredByLabel } from "../util.js";
 import { buildInvoiceHtml, printInvoiceFromHtml } from "../invoiceExport.js";
 
 export default function InvoiceDetail() {
@@ -63,6 +63,7 @@ export default function InvoiceDetail() {
           <p style={{ color: "var(--muted)", margin: "0.25rem 0 0" }}>
             {new Date(inv.date).toLocaleString()}
             {inv.orderNumber ? ` · Order: ${inv.orderNumber}` : ""}
+            {inv.createdBy ? ` · Entered by: ${inv.createdBy}` : ""}
           </p>
         </div>
         {isAdmin && (
@@ -76,8 +77,8 @@ export default function InvoiceDetail() {
       <div className="card" style={{ marginTop: "1rem" }}>
         <p style={{ margin: "0 0 0.5rem" }}>
           <strong>Status:</strong> {inv.paymentStatus} · <strong>Total:</strong> {formatMoney(inv.total)} ·{" "}
-          <strong>Paid at sale:</strong> {formatMoney(inv.paidAtSale)} · <strong>Payment recorded:</strong>{" "}
-          {Number(inv.paymentsRecorded) > 0 ? formatMoney(inv.paymentsRecorded) : "—"} · <strong>On credit:</strong>{" "}
+          <strong>Paid at sale:</strong> {formatMoney(inv.paidAtSale)} · <strong>Later payments:</strong>{" "}
+          {Number(inv.paymentsRecorded) > 0 ? formatMoney(inv.paymentsRecorded) : "—"} · <strong>Remaining:</strong>{" "}
           {inv.creditAmount > 0 ? formatMoney(inv.creditAmount) : "—"}
         </p>
         {inv.customer ? (

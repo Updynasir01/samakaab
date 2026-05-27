@@ -1,11 +1,24 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { customersApi, invoicesApi } from "../api.js";
-import { formatMoney, todayISO } from "../util.js";
+import { formatMoney, todayISO, BALANCE_EPS } from "../util.js";
 import { parseInvoiceFile } from "../parseInvoiceSpreadsheet.js";
 
 function round2(n) {
   return Math.round(Number(n) * 100) / 100;
+}
+
+function emptyLine() {
+  return { id: crypto.randomUUID(), description: "", quantity: "1", unit: "", unitPrice: "" };
+}
+
+/** Keep typing smooth; normalize to 2 decimals only on blur. */
+function normalizeMoneyInput(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const n = parseFloat(s.replace(/,/g, ""));
+  if (!Number.isFinite(n) || n < 0) return s;
+  return String(round2(n));
 }
 
 export default function InvoiceForm() {
@@ -21,7 +34,7 @@ export default function InvoiceForm() {
   const [expectedPayDate, setExpectedPayDate] = useState(todayISO());
   const [paidAtSale, setPaidAtSale] = useState("");
   const [note, setNote] = useState("");
-  const [items, setItems] = useState([{ description: "", quantity: "1", unit: "", unitPrice: "" }]);
+  const [items, setItems] = useState([emptyLine()]);
   const [err, setErr] = useState("");
   const [uploadHint, setUploadHint] = useState("");
   const [saving, setSaving] = useState(false);
@@ -44,7 +57,7 @@ export default function InvoiceForm() {
   const creditPreview = round2(total - paidNum);
 
   function addRow() {
-    setItems([...items, { description: "", quantity: "1", unit: "", unitPrice: "" }]);
+    setItems([...items, emptyLine()]);
   }
 
   function updateRow(i, field, value) {
@@ -68,6 +81,7 @@ export default function InvoiceForm() {
       const { lines, warnings, skippedRows } = await parseInvoiceFile(file);
       setItems(
         lines.map((l) => ({
+          id: crypto.randomUUID(),
           description: l.description,
           quantity: String(l.quantity),
           unit: l.unit || "",
@@ -91,11 +105,11 @@ export default function InvoiceForm() {
       setErr("Add at least one line with a positive total.");
       return;
     }
-    if (creditPreview > 0.004 && !customerId) {
+    if (creditPreview > BALANCE_EPS && !customerId) {
       setErr("Choose a customer (create one under Customers first) when there is an unpaid balance.");
       return;
     }
-    if (creditPreview > 0.004 && !expectedPayDate) {
+    if (creditPreview > BALANCE_EPS && !expectedPayDate) {
       setErr("Set the expected pay date for the unpaid amount.");
       return;
     }
@@ -121,7 +135,7 @@ export default function InvoiceForm() {
         note: note.trim(),
         orderNumber: orderNumber.trim(),
         ...(customerId ? { customer: customerId } : {}),
-        ...(creditPreview > 0.004 ? { expectedPayDate: new Date(expectedPayDate).toISOString() } : {}),
+        ...(creditPreview > BALANCE_EPS ? { expectedPayDate: new Date(expectedPayDate).toISOString() } : {}),
         ...(invoiceNumber && Number(invoiceNumber) > 0 ? { invoiceNumber: Number(invoiceNumber) } : {}),
       };
 
@@ -216,22 +230,24 @@ export default function InvoiceForm() {
             </thead>
             <tbody>
               {items.map((row, i) => (
-                <tr key={i}>
+                <tr key={row.id}>
                   <td>
                     <input
                       value={row.description}
                       onChange={(e) => updateRow(i, "description", e.target.value)}
                       placeholder="e.g. Rice 25kg"
+                      autoComplete="off"
                       required
                     />
                   </td>
                   <td>
                     <input
-                      type="number"
-                      min="0"
-                      step="any"
+                      type="text"
+                      inputMode="decimal"
                       value={row.quantity}
                       onChange={(e) => updateRow(i, "quantity", e.target.value)}
+                      onBlur={(e) => updateRow(i, "quantity", normalizeMoneyInput(e.target.value))}
+                      autoComplete="off"
                     />
                   </td>
                   <td>
@@ -239,15 +255,17 @@ export default function InvoiceForm() {
                       value={row.unit || ""}
                       onChange={(e) => updateRow(i, "unit", e.target.value)}
                       placeholder="BOX"
+                      autoComplete="off"
                     />
                   </td>
                   <td>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       value={row.unitPrice}
                       onChange={(e) => updateRow(i, "unitPrice", e.target.value)}
+                      onBlur={(e) => updateRow(i, "unitPrice", normalizeMoneyInput(e.target.value))}
+                      autoComplete="off"
                     />
                   </td>
                   <td>{formatMoney(lineTotals[i])}</td>
@@ -296,7 +314,7 @@ export default function InvoiceForm() {
           </div>
         </div>
 
-        {creditPreview > 0.004 && (
+        {creditPreview > BALANCE_EPS && (
           <div style={{ marginTop: "1rem" }}>
             <label>Expected pay date (unpaid {formatMoney(creditPreview)})</label>
             <input type="date" value={expectedPayDate} onChange={(e) => setExpectedPayDate(e.target.value)} required />

@@ -7,6 +7,7 @@ export default function Login() {
   const { user, login } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [err, setErr] = useState("");
   const [pending, setPending] = useState(false);
   const [brand, setBrand] = useState({ brandName: "Samakaab Supermarket", logoDataUrl: "" });
@@ -75,15 +76,26 @@ export default function Login() {
           </div>
           <div className="loginField">
             <label htmlFor="p">Password</label>
-            <input
-              id="p"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
-              required
-            />
+            <div className="passwordFieldWrap">
+              <input
+                id="p"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                required
+              />
+              <button
+                type="button"
+                className="passwordToggle"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
 
           <div className="loginActions">

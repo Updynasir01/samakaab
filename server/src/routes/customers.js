@@ -5,7 +5,7 @@ import Customer from "../models/Customer.js";
 import CreditEntry from "../models/CreditEntry.js";
 import PaymentEntry from "../models/PaymentEntry.js";
 import Invoice from "../models/Invoice.js";
-import { authRequired, adminOnly } from "../middleware/auth.js";
+import { authRequired, adminOnly, actorUsername } from "../middleware/auth.js";
 import { getCustomerBalance, getBalancesForCustomers } from "../services/balance.js";
 
 const router = Router();
@@ -78,7 +78,7 @@ router.post(
     if (!errors.isEmpty()) {
       return res.status(400).json({ message: "Invalid input", errors: errors.array() });
     }
-    const c = await Customer.create(req.body);
+    const c = await Customer.create({ ...req.body, createdBy: actorUsername(req) });
     res.status(201).json(c);
   }
 );
@@ -97,7 +97,12 @@ router.patch(
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
-    const customer = await Customer.findByIdAndUpdate(req.params.id, req.body, {
+    const allowed = {};
+    if (req.body.fullName != null) allowed.fullName = req.body.fullName;
+    if (req.body.phone != null) allowed.phone = req.body.phone;
+    if (req.body.address != null) allowed.address = req.body.address;
+    if (req.body.notes != null) allowed.notes = req.body.notes;
+    const customer = await Customer.findByIdAndUpdate(req.params.id, allowed, {
       new: true,
       runValidators: true,
     });

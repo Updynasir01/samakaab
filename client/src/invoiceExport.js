@@ -67,7 +67,11 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
   const insurance = Number(inv?.insurance ?? 0) || 0;
   const discount = Number(inv?.discount ?? 0) || 0;
   const grandTotal = Math.max(0, subtotal + vat + deliveryCost + insurance - discount);
-  const amountDue = isDelivery ? 0 : Math.max(0, credit > 0 ? credit : grandTotal);
+  const amountDue = isDelivery
+    ? 0
+    : inv.paymentStatus === "paid" || credit <= 0.005
+      ? 0
+      : Math.max(0, credit);
 
   return `<!DOCTYPE html>
 <html lang="en">

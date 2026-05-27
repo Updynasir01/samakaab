@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { customersApi, creditsApi, paymentsApi, invoicesApi } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { useCompanyProfile } from "../companySettings.jsx";
-import { formatMoney, toInputDate, todayISO } from "../util.js";
+import { formatMoney, invoiceMatchesFilter, enteredByLabel, toInputDate, todayISO, BALANCE_EPS, shouldShowAtSalePayRow, isExcludedPaymentNote } from "../util.js";
 import {
   buildAccountReportHtml,
   downloadAccountReportPdf,
@@ -11,17 +11,17 @@ import {
   printAccountReportFromHtml,
 } from "../accountReportExport.js";
 
-const EPS = 0.005;
+const EPS = BALANCE_EPS;
 
 function sumPaymentsLinkedToInvoice(payments, invoiceId) {
   return payments
-    .filter((p) => p.invoice && String(p.invoice) === String(invoiceId))
+    .filter(
+      (p) =>
+        p.invoice &&
+        String(p.invoice) === String(invoiceId) &&
+        !isExcludedPaymentNote(p.note)
+    )
     .reduce((s, p) => s + Number(p.amount || 0), 0);
-}
-
-/** Any invoice with cash collected at sale (full or partial) — for display list. */
-function invoicesWithPaidAtSale(invoices) {
-  return (invoices || []).filter((inv) => Number(inv.paidAtSale || 0) > EPS);
 }
 
 export default function CustomerDetail() {
@@ -45,6 +45,9 @@ export default function CustomerDetail() {
     expectedPayDate: todayISO(),
   });
   const [payForm, setPayForm] = useState({ amount: "", paidAt: todayISO(), note: "", invoiceId: "" });
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("all");
+  const [invoiceDateFilter, setInvoiceDateFilter] = useState("");
 
   useEffect(() => {
     if (isNew) return;
@@ -69,6 +72,17 @@ export default function CustomerDetail() {
       })
       .catch((e) => setErr(e.message));
   }, [id, isNew]);
+
+  const filteredInvoices = useMemo(
+    () =>
+      invoices.filter((inv) =>
+        invoiceMatchesFilter(inv, invoiceSearch, {
+          status: invoiceStatusFilter,
+          date: invoiceDateFilter,
+        })
+      ),
+    [invoices, invoiceSearch, invoiceStatusFilter, invoiceDateFilter]
+  );
 
   async function saveProfile(e) {
     e.preventDefault();
@@ -194,25 +208,26 @@ export default function CustomerDetail() {
 
   const totalCreditAmt = credits.reduce((s, cr) => s + (Number(cr.amount) || 0), 0);
 
+  const visiblePayments = payments.filter((p) => !isExcludedPaymentNote(p.note));
+
   const paymentRowsMerged = [
-    ...payments.map((p) => ({
+    ...visiblePayments.map((p) => ({
       kind: "entry",
       key: `pay-${p._id}`,
       sortTime: new Date(p.paidAt).getTime(),
       entry: p,
     })),
-    ...invoicesWithPaidAtSale(invoices).map((inv) => ({
-      kind: "atSale",
-      key: `at-sale-${inv._id}`,
-      sortTime: new Date(inv.date).getTime(),
-      invoice: inv,
-    })),
+    ...invoices
+      .filter((inv) => shouldShowAtSalePayRow(inv, payments))
+      .map((inv) => ({
+        kind: "atSale",
+        key: `at-sale-${inv._id}`,
+        sortTime: new Date(inv.date).getTime(),
+        invoice: inv,
+      })),
   ].sort((a, b) => b.sortTime - a.sortTime);
 
-  const totalPaymentAmt = paymentRowsMerged.reduce((s, row) => {
-    if (row.kind === "entry") return s + (Number(row.entry.amount) || 0);
-    return s + (Number(row.invoice.paidAtSale) || 0);
-  }, 0);
+  const totalPaymentAmt = Number(customer?.totalPayments ?? 0);
 
   /** One chronological report: Credit + Payment recorded + At sale pay (all Dis types). */
   const accountReportRows = [
@@ -226,6 +241,7 @@ export default function CustomerDetail() {
         due: toInputDate(cr.expectedPayDate),
         detail: String(cr.description || "").trim() || "—",
         invoiceNum: inv ? inv.invoiceNumber : null,
+        orderNumber: inv ? inv.orderNumber || inv.orderNo || "" : "",
         invoiceId: cr.invoice,
         amount: Number(cr.amount) || 0,
       };
@@ -243,6 +259,7 @@ export default function CustomerDetail() {
           due: "—",
           detail: String(row.entry.note || "").trim() || "—",
           invoiceNum: inv ? inv.invoiceNumber : null,
+          orderNumber: inv ? inv.orderNumber || inv.orderNo || "" : "",
           invoiceId: row.entry.invoice,
           amount: Number(row.entry.amount) || 0,
         };
@@ -255,6 +272,7 @@ export default function CustomerDetail() {
         due: "—",
         detail: "Cash at sale (invoice)",
         invoiceNum: row.invoice.invoiceNumber,
+        orderNumber: row.invoice.orderNumber || row.invoice.orderNo || "",
         invoiceId: row.invoice._id,
         amount: Number(row.invoice.paidAtSale) || 0,
       };
@@ -288,6 +306,11 @@ export default function CustomerDetail() {
         <Link to="/customers">← Customers</Link>
       </p>
       <h1 style={{ marginTop: 0 }}>{isNew ? "New customer" : customer?.fullName}</h1>
+      {!isNew && customer?.createdBy && (
+        <p style={{ margin: "0 0 0.5rem", color: "var(--muted)", fontSize: "0.9rem" }}>
+          Customer added by <strong>{customer.createdBy}</strong>
+        </p>
+      )}
       {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
 
       <div className="card" style={{ marginBottom: "1rem" }}>
@@ -345,6 +368,65 @@ export default function CustomerDetail() {
             {invoices.length === 0 ? (
               <p style={{ color: "var(--muted)", margin: 0 }}>No invoices yet.</p>
             ) : (
+              <>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "0.75rem",
+                    flexWrap: "wrap",
+                    alignItems: "flex-end",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                    <label htmlFor="invoice-search">Search invoices</label>
+                    <input
+                      id="invoice-search"
+                      value={invoiceSearch}
+                      onChange={(e) => setInvoiceSearch(e.target.value)}
+                      placeholder="Invoice #, order no, status, user, amount…"
+                    />
+                  </div>
+                  <div style={{ flex: "0 1 160px", minWidth: 150 }}>
+                    <label htmlFor="invoice-date">Invoice date</label>
+                    <input
+                      id="invoice-date"
+                      type="date"
+                      value={invoiceDateFilter}
+                      onChange={(e) => setInvoiceDateFilter(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ flex: "0 1 160px", minWidth: 140 }}>
+                    <label htmlFor="invoice-status">Status</label>
+                    <select
+                      id="invoice-status"
+                      value={invoiceStatusFilter}
+                      onChange={(e) => setInvoiceStatusFilter(e.target.value)}
+                    >
+                      <option value="all">All</option>
+                      <option value="paid">Paid</option>
+                      <option value="partial">Partial</option>
+                      <option value="unpaid">Unpaid</option>
+                    </select>
+                  </div>
+                  {(invoiceSearch.trim() || invoiceStatusFilter !== "all" || invoiceDateFilter) && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ marginBottom: 2 }}
+                      onClick={() => {
+                        setInvoiceSearch("");
+                        setInvoiceStatusFilter("all");
+                        setInvoiceDateFilter("");
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+                  Showing {filteredInvoices.length} of {invoices.length} invoice{invoices.length === 1 ? "" : "s"}
+                </p>
               <div className="table-wrap">
                 <table>
                   <thead>
@@ -353,18 +435,23 @@ export default function CustomerDetail() {
                       <th>Date</th>
                       <th>Total</th>
                       <th>Paid at sale</th>
-                      <th>On credit</th>
                       <th>Paid (linked)</th>
                       <th>Remaining</th>
                       <th>Status</th>
+                      <th>Entered by</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {invoices.map((inv) => {
+                    {filteredInvoices.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} style={{ color: "var(--muted)" }}>
+                          No invoices match your search.
+                        </td>
+                      </tr>
+                    ) : (
+                    filteredInvoices.map((inv) => {
                       const linked = sumPaymentsLinkedToInvoice(payments, inv._id);
-                      const credit = Number(inv.creditAmount || 0);
-                      const remaining = Math.max(0, credit - linked);
-                      const showRemain = inv.paymentStatus !== "paid" || credit > 0 || linked > 0;
+                      const remaining = Number(inv.creditAmount || 0);
                       const pas = Number(inv.paidAtSale || 0);
                       return (
                         <tr key={inv._id}>
@@ -374,16 +461,18 @@ export default function CustomerDetail() {
                           <td>{new Date(inv.date).toLocaleDateString()}</td>
                           <td>{formatMoney(inv.total)}</td>
                           <td>{pas > EPS ? formatMoney(pas) : "—"}</td>
-                          <td>{credit > 0 ? formatMoney(credit) : "—"}</td>
-                          <td>{linked > 0 ? formatMoney(linked) : "—"}</td>
-                          <td>{showRemain ? formatMoney(remaining) : "—"}</td>
+                          <td>{linked > EPS ? formatMoney(linked) : "—"}</td>
+                          <td>{remaining > EPS ? formatMoney(remaining) : "—"}</td>
                           <td>{inv.paymentStatus}</td>
+                          <td>{enteredByLabel(inv)}</td>
                         </tr>
                       );
-                    })}
+                    })
+                    )}
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
 
@@ -469,9 +558,13 @@ export default function CustomerDetail() {
                   <label>Link to invoice (optional)</label>
                   <select value={payForm.invoiceId} onChange={(e) => setPayForm({ ...payForm, invoiceId: e.target.value })}>
                     <option value="">— Not linked —</option>
-                    {invoices.map((inv) => (
+                    {(invoiceSearch.trim() || invoiceStatusFilter !== "all" || invoiceDateFilter
+                      ? filteredInvoices
+                      : invoices
+                    ).map((inv) => (
                       <option key={inv._id} value={inv._id}>
                         #{inv.invoiceNumber} · {new Date(inv.date).toLocaleDateString()} · {formatMoney(inv.total)}
+                        {inv.paymentStatus !== "paid" ? ` · ${inv.paymentStatus}` : ""}
                       </option>
                     ))}
                   </select>
@@ -517,6 +610,7 @@ export default function CustomerDetail() {
                       <th>Due</th>
                       <th>Desc</th>
                       <th>Invoice</th>
+                      <th>By</th>
                       <th>Amt</th>
                       {isAdmin && <th className="no-print" />}
                     </tr>
@@ -525,12 +619,18 @@ export default function CustomerDetail() {
                     {credits.map((cr) => {
                       const due = new Date(cr.expectedPayDate);
                       const overdue = due < new Date(new Date().setHours(0, 0, 0, 0));
+                      const invForCr = cr.invoice
+                        ? invoices.find((i) => String(i._id) === String(cr.invoice))
+                        : null;
+                      const crRemaining = invForCr
+                        ? Number(invForCr.creditAmount || 0)
+                        : Number(cr.amount || 0);
                       return (
                         <tr key={cr._id}>
                           <td>{toInputDate(cr.dateOfCredit)}</td>
                           <td>
                             {toInputDate(cr.expectedPayDate)}
-                            {overdue && customer.balance > 0 && (
+                            {overdue && crRemaining > EPS && customer.balance > EPS && (
                               <span className="badge badge-danger no-print" style={{ marginLeft: 4 }}>
                                 overdue
                               </span>
@@ -544,6 +644,7 @@ export default function CustomerDetail() {
                               "—"
                             )}
                           </td>
+                          <td>{enteredByLabel(cr)}</td>
                           <td>{formatMoney(cr.amount)}</td>
                           {isAdmin && (
                             <td className="no-print">
@@ -558,7 +659,7 @@ export default function CustomerDetail() {
                   </tbody>
                   <tfoot>
                     <tr style={{ fontWeight: 600, background: "var(--bg-soft)" }}>
-                      <td colSpan={4} style={{ textAlign: "right", color: "var(--muted)" }}>
+                      <td colSpan={5} style={{ textAlign: "right", color: "var(--muted)" }}>
                         Total credit
                       </td>
                       <td>{formatMoney(totalCreditAmt)}</td>
@@ -572,7 +673,7 @@ export default function CustomerDetail() {
               <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Payments</h2>
               <p className="no-print" style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.5rem" }}>
                 <strong>Dis</strong>: <strong>Payment recorded</strong> (Add payment) or <strong>At sale pay</strong> (cash on the invoice when sold).{" "}
-                <strong>Total payments</strong> is the sum of every amount in this table.
+                <strong>Total payments</strong> matches account balance (credit − paid).
               </p>
               <div className="table-wrap">
                 <table>
@@ -582,6 +683,7 @@ export default function CustomerDetail() {
                       <th>Dis</th>
                       <th>Note</th>
                       <th>Invoice</th>
+                      <th>By</th>
                       <th>Amt</th>
                       {isAdmin && <th className="no-print" />}
                     </tr>
@@ -589,7 +691,7 @@ export default function CustomerDetail() {
                   <tbody>
                     {paymentRowsMerged.length === 0 ? (
                       <tr>
-                        <td colSpan={isAdmin ? 6 : 5} style={{ color: "var(--muted)" }}>
+                        <td colSpan={isAdmin ? 7 : 6} style={{ color: "var(--muted)" }}>
                           No payments yet.
                         </td>
                       </tr>
@@ -610,6 +712,7 @@ export default function CustomerDetail() {
                                 "—"
                               )}
                             </td>
+                            <td>{enteredByLabel(row.entry)}</td>
                             <td>{formatMoney(row.entry.amount)}</td>
                             {isAdmin && (
                               <td className="no-print">
@@ -632,6 +735,7 @@ export default function CustomerDetail() {
                             <td>
                               <Link to={`/invoices/${row.invoice._id}`}>#{row.invoice.invoiceNumber}</Link>
                             </td>
+                            <td>{enteredByLabel(row.invoice)}</td>
                             <td>{formatMoney(row.invoice.paidAtSale)}</td>
                             {isAdmin && (
                               <td className="no-print">
@@ -645,7 +749,7 @@ export default function CustomerDetail() {
                   </tbody>
                   <tfoot>
                     <tr style={{ fontWeight: 600, background: "var(--bg-soft)" }}>
-                      <td colSpan={4} style={{ textAlign: "right", color: "var(--muted)" }}>
+                      <td colSpan={5} style={{ textAlign: "right", color: "var(--muted)" }}>
                         Total payments
                       </td>
                       <td>{formatMoney(totalPaymentAmt)}</td>
