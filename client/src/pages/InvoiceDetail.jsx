@@ -3,7 +3,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { invoicesApi } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { useCompanyProfile } from "../companySettings.jsx";
-import { formatMoney, enteredByLabel } from "../util.js";
+import { formatMoney, enteredByLabel, invoiceLaterPayments, BALANCE_EPS } from "../util.js";
 import { buildInvoiceHtml, printInvoiceFromHtml } from "../invoiceExport.js";
 
 export default function InvoiceDetail() {
@@ -78,7 +78,20 @@ export default function InvoiceDetail() {
         <p style={{ margin: "0 0 0.5rem" }}>
           <strong>Status:</strong> {inv.paymentStatus} · <strong>Total:</strong> {formatMoney(inv.total)} ·{" "}
           <strong>Paid at sale:</strong> {formatMoney(inv.paidAtSale)} · <strong>Later payments:</strong>{" "}
-          {Number(inv.paymentsRecorded) > 0 ? formatMoney(inv.paymentsRecorded) : "—"} · <strong>Remaining:</strong>{" "}
+          {invoiceLaterPayments(inv) > BALANCE_EPS ? (
+            <>
+              {formatMoney(invoiceLaterPayments(inv))}
+              {Number(inv.paymentsFromAccount) > BALANCE_EPS ? (
+                <span style={{ color: "var(--muted)", fontSize: "0.9em" }}>
+                  {" "}
+                  (incl. {formatMoney(inv.paymentsFromAccount)} from customer account)
+                </span>
+              ) : null}
+            </>
+          ) : (
+            "—"
+          )}{" "}
+          · <strong>Remaining:</strong>{" "}
           {inv.creditAmount > 0 ? formatMoney(inv.creditAmount) : "—"}
         </p>
         {inv.customer ? (

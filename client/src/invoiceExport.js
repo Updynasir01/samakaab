@@ -1,4 +1,4 @@
-import { formatMoney, safeFileSegment } from "./util.js";
+import { formatMoney, safeFileSegment, invoiceLaterPayments } from "./util.js";
 import { DEFAULT_COMPANY } from "./companyProfile.js";
 
 function escapeHtml(s) {
@@ -57,7 +57,7 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
     .join("");
 
   const paidAtSale = Number(inv.paidAtSale ?? 0);
-  const paymentsRecorded = Number(inv.paymentsRecorded ?? 0);
+  const paymentsApplied = invoiceLaterPayments(inv);
   const subtotal = Number(inv.total ?? 0);
   const credit = Number(inv.creditAmount ?? 0);
 
@@ -159,7 +159,7 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
         <div class="muted"><strong>Date:</strong> ${escapeHtml(dateShort || "—")}</div>
         <div class="muted"><strong>Status:</strong> ${escapeHtml(inv.paymentStatus ?? "")}</div>
         ${isDelivery ? "" : `<div class="muted"><strong>Paid at sale:</strong> ${escapeHtml(formatMoney(paidAtSale))}</div>`}
-        ${isDelivery ? "" : `<div class="muted"><strong>Payments recorded:</strong> ${escapeHtml(formatMoney(paymentsRecorded))}</div>`}
+        ${isDelivery ? "" : `<div class="muted"><strong>Later payments:</strong> ${escapeHtml(formatMoney(paymentsApplied))}</div>`}
       </div>
     </div>
 

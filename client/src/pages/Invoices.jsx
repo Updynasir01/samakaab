@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { invoicesApi } from "../api.js";
-import { formatMoney, invoiceMatchesFilter, enteredByLabel } from "../util.js";
+import { formatMoney, invoiceMatchesFilter, enteredByLabel, invoiceLaterPayments, BALANCE_EPS } from "../util.js";
 
 function statusLabel(s) {
   if (s === "paid") return <span className="badge badge-ok">Paid</span>;
@@ -138,7 +138,7 @@ export default function Invoices() {
                   <td>{formatMoney(inv.total)}</td>
                   <td>{formatMoney(inv.paidAtSale)}</td>
                   <td>
-                    {Number(inv.paymentsRecorded) > 0 ? formatMoney(inv.paymentsRecorded) : "—"}
+                    {invoiceLaterPayments(inv) > BALANCE_EPS ? formatMoney(invoiceLaterPayments(inv)) : "—"}
                   </td>
                   <td>{inv.creditAmount > 0 ? formatMoney(inv.creditAmount) : "—"}</td>
                   <td>{statusLabel(inv.paymentStatus)}</td>

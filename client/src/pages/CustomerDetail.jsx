@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { customersApi, creditsApi, paymentsApi, invoicesApi } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { useCompanyProfile } from "../companySettings.jsx";
-import { formatMoney, invoiceMatchesFilter, enteredByLabel, toInputDate, todayISO, BALANCE_EPS, shouldShowAtSalePayRow, isExcludedPaymentNote } from "../util.js";
+import { formatMoney, invoiceMatchesFilter, enteredByLabel, toInputDate, todayISO, invoiceLaterPayments, BALANCE_EPS, shouldShowAtSalePayRow, isExcludedPaymentNote } from "../util.js";
 import {
   buildAccountReportHtml,
   downloadAccountReportPdf,
@@ -12,17 +12,6 @@ import {
 } from "../accountReportExport.js";
 
 const EPS = BALANCE_EPS;
-
-function sumPaymentsLinkedToInvoice(payments, invoiceId) {
-  return payments
-    .filter(
-      (p) =>
-        p.invoice &&
-        String(p.invoice) === String(invoiceId) &&
-        !isExcludedPaymentNote(p.note)
-    )
-    .reduce((s, p) => s + Number(p.amount || 0), 0);
-}
 
 export default function CustomerDetail() {
   const { id } = useParams();
@@ -435,7 +424,7 @@ export default function CustomerDetail() {
                       <th>Date</th>
                       <th>Total</th>
                       <th>Paid at sale</th>
-                      <th>Paid (linked)</th>
+                      <th>Later payments</th>
                       <th>Remaining</th>
                       <th>Status</th>
                       <th>Entered by</th>
@@ -450,7 +439,7 @@ export default function CustomerDetail() {
                       </tr>
                     ) : (
                     filteredInvoices.map((inv) => {
-                      const linked = sumPaymentsLinkedToInvoice(payments, inv._id);
+                      const later = invoiceLaterPayments(inv);
                       const remaining = Number(inv.creditAmount || 0);
                       const pas = Number(inv.paidAtSale || 0);
                       return (
@@ -461,7 +450,7 @@ export default function CustomerDetail() {
                           <td>{new Date(inv.date).toLocaleDateString()}</td>
                           <td>{formatMoney(inv.total)}</td>
                           <td>{pas > EPS ? formatMoney(pas) : "—"}</td>
-                          <td>{linked > EPS ? formatMoney(linked) : "—"}</td>
+                          <td>{later > EPS ? formatMoney(later) : "—"}</td>
                           <td>{remaining > EPS ? formatMoney(remaining) : "—"}</td>
                           <td>{inv.paymentStatus}</td>
                           <td>{enteredByLabel(inv)}</td>

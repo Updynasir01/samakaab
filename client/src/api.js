@@ -17,30 +17,56 @@ function normalizeBaseUrl(u) {
 
 const API_BASE = normalizeBaseUrl(import.meta.env?.VITE_API_URL);
 
+function parseApiError(text, res) {
+  const trimmed = String(text || "").trim();
+  if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
+    return "Cannot reach the API server. On Vercel, set VITE_API_URL to your backend URL (e.g. https://xxx.onrender.com) and redeploy.";
+  }
+  try {
+    const data = trimmed ? JSON.parse(trimmed) : null;
+    return data?.message || res.statusText || "Request failed";
+  } catch {
+    return trimmed.slice(0, 200) || res.statusText || "Request failed";
+  }
+}
+
 export async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...options.headers };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const url = API_BASE ? `${API_BASE}/api${path}` : `/api${path}`;
-  const res = await fetch(url, { ...options, headers });
+
+  let res;
+  try {
+    res = await fetch(url, { ...options, headers });
+  } catch {
+    const hint = API_BASE
+      ? "Cannot connect to the API. If you see a CORS error in the browser console, set CORS_ORIGIN on Render to your site URL (e.g. https://app.samkab.com) and redeploy the backend."
+      : "Network error — set VITE_API_URL to your backend URL and rebuild the frontend.";
+    throw new Error(hint);
+  }
+
   if (res.status === 401 && getToken()) {
     setToken(null);
     window.dispatchEvent(new Event("samakaab:logout"));
   }
   const text = await res.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { message: text };
-  }
   if (!res.ok) {
-    const err = new Error(data?.message || res.statusText);
+    const err = new Error(parseApiError(text, res));
     err.status = res.status;
-    err.data = data;
+    try {
+      err.data = text ? JSON.parse(text) : null;
+    } catch {
+      err.data = null;
+    }
     throw err;
   }
-  return data;
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(parseApiError(text, res));
+  }
 }
 
 export const authApi = {

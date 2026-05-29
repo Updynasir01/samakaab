@@ -62,6 +62,12 @@ export function enteredByLabel(record) {
   return v && String(v).trim() ? String(v) : "—";
 }
 
+/** Total credit paid down on an invoice (linked payments + FIFO from customer account). */
+export function invoiceLaterPayments(inv) {
+  if (inv?.paymentsApplied != null) return Number(inv.paymentsApplied) || 0;
+  return Number(inv?.paymentsRecorded) || 0;
+}
+
 /** Client-side filter for invoice lists (customer page, all invoices, payment link). */
 export function invoiceMatchesFilter(inv, q, { status = "all", customerName = "", date = "" } = {}) {
   if (status !== "all" && inv.paymentStatus !== status) return false;

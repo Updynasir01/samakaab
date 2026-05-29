@@ -95,6 +95,50 @@ npm run preview
 
 Serve the `client/dist` folder with any static host and configure it to proxy API requests to your Express server, or deploy API and SPA separately with CORS and correct `VITE_*` / API base URL if you add one later.
 
+## Deploy online (Vercel + Render)
+
+**Important:** Users you create on **localhost** are stored in your **local** MongoDB. They do **not** exist on the live site unless you create them there too (or use the same Atlas database everywhere).
+
+### Render (backend API)
+
+Environment variables:
+
+| Variable | Example |
+|----------|---------|
+| `NODE_ENV` | `production` |
+| `MONGODB_URI` | MongoDB Atlas connection string |
+| `JWT_SECRET` | Random string, **32+ characters** (required or server won't start) |
+| `CORS_ORIGIN` | `https://your-app.vercel.app` (exact frontend URL, no trailing slash) |
+
+After first deploy, open Render **Shell** and run once if the database has no users:
+
+```bash
+npm run seed
+```
+
+Then log in with `admin` / `admin123` and change the password in **Settings**.
+
+Health check: `https://YOUR-API.onrender.com/api/health`
+
+### Vercel (frontend)
+
+Environment variable (required):
+
+| Variable | Example |
+|----------|---------|
+| `VITE_API_URL` | `https://YOUR-API.onrender.com` (no trailing slash) |
+
+Set this in Vercel → Project → Settings → Environment Variables, then **Redeploy** (rebuild). Without it, login calls hit Vercel instead of Render and will fail.
+
+### Checklist if login fails online
+
+1. `VITE_API_URL` set on Vercel and frontend **redeployed** after setting it  
+2. `CORS_ORIGIN` on Render matches your Vercel URL exactly (`https://…`)  
+3. `JWT_SECRET` is 32+ characters on Render  
+4. User exists in **production** MongoDB (seed or create on live site, not only locally)  
+5. Wait ~60s on first request if Render free tier was sleeping  
+6. Browser DevTools → Network: login should go to `https://xxx.onrender.com/api/auth/login`, not your Vercel domain  
+
 ## Project structure
 
 ```

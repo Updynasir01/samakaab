@@ -33,16 +33,39 @@ router.get("/next-number", async (_req, res) => {
 });
 
 /** Sum of PaymentEntry amounts linked to each invoice (record payment / full pay flows). */
+function originalCreditForInvoice(inv, creditMap) {
+  if (inv.creditEntry) {
+    const cr = creditMap.get(String(inv.creditEntry));
+    return Number(cr?.amount || 0);
+  }
+  return Math.max(0, round2(Number(inv.total) - Number(inv.paidAtSale || 0)));
+}
+
 async function attachPaymentsRecordedToInvoices(list) {
   if (!list.length) return list;
   const ids = list.map((i) => i._id);
-  const agg = await PaymentEntry.aggregate([
-    { $match: { invoice: { $in: ids }, ...excludedPaymentNoteFilter() } },
-    { $group: { _id: "$invoice", total: { $sum: "$amount" } } },
+  const creditIds = list.map((i) => i.creditEntry).filter(Boolean);
+  const [agg, credits] = await Promise.all([
+    PaymentEntry.aggregate([
+      { $match: { invoice: { $in: ids }, ...excludedPaymentNoteFilter() } },
+      { $group: { _id: "$invoice", total: { $sum: "$amount" } } },
+    ]),
+    creditIds.length
+      ? CreditEntry.find({ _id: { $in: creditIds } }).select("amount").lean()
+      : Promise.resolve([]),
   ]);
-  const map = new Map(agg.map((a) => [String(a._id), round2(a.total)]));
+  const linkedMap = new Map(agg.map((a) => [String(a._id), round2(a.total)]));
+  const creditMap = new Map(credits.map((c) => [String(c._id), c]));
   for (const inv of list) {
-    inv.paymentsRecorded = map.get(String(inv._id)) ?? 0;
+    const linked = linkedMap.get(String(inv._id)) ?? 0;
+    const original = originalCreditForInvoice(inv, creditMap);
+    const remaining = round2(Number(inv.creditAmount || 0));
+    const applied = Math.max(0, round2(original - remaining));
+    const fromAccount = Math.max(0, round2(applied - linked));
+    inv.paymentsRecorded = linked;
+    inv.paymentsApplied = applied;
+    inv.paymentsFromAccount = fromAccount;
+    inv.originalCredit = original;
   }
   return list;
 }
