@@ -115,6 +115,118 @@ function attachDeliverySummaryToInvoices(list) {
   return list;
 }
 
+function buildLineItemsFromBody(bodyItems, existingInvoice = null) {
+  const existingById = new Map(
+    (existingInvoice?.lineItems || []).map((li) => [String(li._id), li])
+  );
+  return bodyItems.map((li) => {
+    const quantity = round2(li.quantity);
+    const unitPrice = round2(li.unitPrice);
+    const lineTotal = round2(quantity * unitPrice);
+    const base = {
+      description: String(li.description).trim(),
+      quantity,
+      unit: String(li.unit || "").trim(),
+      unitPrice,
+      lineTotal,
+    };
+    const existingId = li._id || li.id;
+    if (existingId && existingById.has(String(existingId))) {
+      const prev = existingById.get(String(existingId));
+      return {
+        ...base,
+        _id: prev._id,
+        delivered: prev.delivered === true,
+        deliveredAt: prev.deliveredAt || null,
+      };
+    }
+    return { ...base, delivered: false, deliveredAt: null };
+  });
+}
+
+async function paymentsAppliedToInvoice(inv) {
+  let original = 0;
+  if (inv.creditEntry) {
+    const cr = await CreditEntry.findById(inv.creditEntry).select("amount").lean();
+    original = Number(cr?.amount || 0);
+  } else {
+    original = Math.max(0, round2(Number(inv.total) - Number(inv.paidAtSale || 0)));
+  }
+  const remaining = round2(Number(inv.creditAmount || 0));
+  return Math.max(0, round2(original - remaining));
+}
+
+async function attachCreditMetaToInvoice(inv) {
+  if (!inv?.creditEntry) return inv;
+  const cr = await CreditEntry.findById(inv.creditEntry).select("expectedPayDate amount").lean();
+  if (cr) {
+    inv.expectedPayDate = cr.expectedPayDate;
+    inv.creditEntryAmount = cr.amount;
+  }
+  return inv;
+}
+
+async function reconcileInvoiceCreditAndPayments(inv, {
+  customerId,
+  creditAmount,
+  total,
+  paidAtSale,
+  date,
+  expectedPayDate,
+  lineItems,
+  invoiceNumber,
+  note,
+  enteredBy,
+  EPS,
+}) {
+  if (creditAmount > EPS) {
+    const creditPayload = {
+      customer: customerId,
+      amount: creditAmount,
+      description: buildCreditDescription(invoiceNumber, lineItems),
+      dateOfCredit: date,
+      expectedPayDate,
+    };
+    if (inv.creditEntry) {
+      await CreditEntry.findByIdAndUpdate(inv.creditEntry, { $set: creditPayload });
+    } else {
+      const [credit] = await CreditEntry.create([
+        { ...creditPayload, invoice: inv._id, createdBy: enteredBy },
+      ]);
+      inv.creditEntry = credit._id;
+    }
+    await PaymentEntry.deleteMany({ invoice: inv._id, note: { $regex: /paid in full/i } });
+  } else if (inv.creditEntry) {
+    await CreditEntry.findByIdAndDelete(inv.creditEntry);
+    inv.creditEntry = null;
+  }
+
+  if (customerId && creditAmount <= EPS) {
+    const payNote = note
+      ? `Invoice #${invoiceNumber} (paid in full). ${note}`
+      : `Invoice #${invoiceNumber} paid in full`;
+    const existing = await PaymentEntry.findOne({ invoice: inv._id, note: { $regex: /paid in full/i } });
+    if (existing) {
+      existing.amount = total;
+      existing.paidAt = date;
+      existing.note = payNote;
+      existing.customer = customerId;
+      await existing.save();
+    } else {
+      await PaymentEntry.create([
+        {
+          customer: customerId,
+          amount: total,
+          paidAt: date,
+          note: payNote,
+          invoice: inv._id,
+          createdBy: enteredBy,
+        },
+      ]);
+    }
+  }
+}
+
 router.post(
   "/",
   body("lineItems").isArray({ min: 1 }),
@@ -143,20 +255,7 @@ router.post(
     const note = req.body.note || "";
     const orderNumber = String(req.body.orderNumber || "").trim();
 
-    const lineItems = req.body.lineItems.map((li) => {
-      const quantity = round2(li.quantity);
-      const unitPrice = round2(li.unitPrice);
-      const lineTotal = round2(quantity * unitPrice);
-      return {
-        description: String(li.description).trim(),
-        quantity,
-        unit: String(li.unit || "").trim(),
-        unitPrice,
-        lineTotal,
-        delivered: false,
-        deliveredAt: null,
-      };
-    });
+    const lineItems = buildLineItemsFromBody(req.body.lineItems);
 
     const total = round2(lineItems.reduce((s, l) => s + l.lineTotal, 0));
     if (total <= 0) {
@@ -296,15 +395,158 @@ router.get("/:id", async (req, res) => {
   if (!inv) return res.status(404).json({ message: "Invoice not found" });
   if (inv.customer?._id) await syncCustomerInvoices(inv.customer._id);
   const fresh = await Invoice.findById(req.params.id).populate("customer", "fullName phone address notes").lean();
+  await attachCreditMetaToInvoice(fresh);
   await attachPaymentsRecordedToInvoices([fresh]);
   attachDeliverySummaryToInvoices([fresh]);
   res.json(fresh);
 });
 
 router.patch(
+  "/:id",
+  body("lineItems").isArray({ min: 1 }),
+  body("lineItems.*.description").trim().notEmpty(),
+  body("lineItems.*.quantity").isFloat({ min: 0 }),
+  body("lineItems.*.unit").optional().trim(),
+  body("lineItems.*.unitPrice").isFloat({ min: 0 }),
+  body("lineItems.*._id").optional().isString(),
+  body("orderNumber").optional().trim(),
+  body("date").isISO8601(),
+  body("paidAtSale").optional().isFloat({ min: 0 }),
+  body("expectedPayDate").optional().isISO8601(),
+  body("note").optional().trim(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: "Invalid input", errors: errors.array() });
+    }
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "Invalid id" });
+    }
+
+    const inv = await Invoice.findById(req.params.id);
+    if (!inv) return res.status(404).json({ message: "Invoice not found" });
+
+    const oldCustomerId = inv.customer ? String(inv.customer) : null;
+    if (oldCustomerId) await syncCustomerInvoices(oldCustomerId);
+
+    const synced = await Invoice.findById(inv._id).lean();
+    const paymentsApplied = await paymentsAppliedToInvoice(synced);
+
+    const rawCustomer = req.body.customer;
+    let customerId = inv.customer;
+    if (rawCustomer !== undefined) {
+      customerId =
+        rawCustomer && rawCustomer !== "" && mongoose.isValidObjectId(rawCustomer) ? rawCustomer : null;
+    }
+
+    const paidAtSale = round2(req.body.paidAtSale ?? inv.paidAtSale ?? 0);
+    const date = new Date(req.body.date);
+    const note = req.body.note ?? inv.note ?? "";
+    const orderNumber = String(req.body.orderNumber ?? inv.orderNumber ?? "").trim();
+    const lineItems = buildLineItemsFromBody(req.body.lineItems, synced);
+
+    const total = round2(lineItems.reduce((s, l) => s + l.lineTotal, 0));
+    if (total <= 0) {
+      return res.status(400).json({ message: "Invoice total must be greater than zero" });
+    }
+    if (paidAtSale > total) {
+      return res.status(400).json({ message: "Amount paid at sale cannot exceed invoice total" });
+    }
+
+    const minTotal = round2(paidAtSale + paymentsApplied);
+    if (total + BALANCE_EPS < minTotal) {
+      return res.status(400).json({
+        message: `Cannot reduce total below ${minTotal.toFixed(2)} — that amount is already paid on this invoice`,
+      });
+    }
+
+    const creditAmount = round2(total - paidAtSale);
+    const EPS = BALANCE_EPS;
+
+    if (creditAmount > EPS && !customerId) {
+      return res.status(400).json({
+        message: "Select a customer when there is an unpaid balance on the invoice",
+      });
+    }
+
+    let expectedPayDate = req.body.expectedPayDate ? new Date(req.body.expectedPayDate) : null;
+    if (creditAmount > EPS) {
+      if (!expectedPayDate || Number.isNaN(expectedPayDate.getTime())) {
+        if (synced.creditEntry) {
+          const cr = await CreditEntry.findById(synced.creditEntry).select("expectedPayDate").lean();
+          expectedPayDate = cr?.expectedPayDate ? new Date(cr.expectedPayDate) : null;
+        }
+        if (!expectedPayDate || Number.isNaN(expectedPayDate.getTime())) {
+          return res.status(400).json({ message: "Expected pay date is required when the invoice is not fully paid at sale" });
+        }
+      }
+    } else {
+      expectedPayDate = expectedPayDate || date;
+    }
+
+    if (customerId) {
+      const c = await Customer.findById(customerId);
+      if (!c) return res.status(404).json({ message: "Customer not found" });
+    }
+
+    let paymentStatus = "paid";
+    if (creditAmount > EPS) {
+      paymentStatus = paidAtSale > EPS ? "partial" : "unpaid";
+    }
+
+    inv.customer = customerId;
+    inv.lineItems = lineItems;
+    inv.total = total;
+    inv.paidAtSale = paidAtSale;
+    inv.creditAmount = creditAmount > EPS ? creditAmount : 0;
+    inv.paymentStatus = paymentStatus;
+    inv.date = date;
+    inv.note = note;
+    inv.orderNumber = orderNumber;
+
+    const enteredBy = actorUsername(req);
+    try {
+      await reconcileInvoiceCreditAndPayments(inv, {
+        customerId,
+        creditAmount,
+        total,
+        paidAtSale,
+        date,
+        expectedPayDate,
+        lineItems,
+        invoiceNumber: inv.invoiceNumber,
+        note,
+        enteredBy,
+        EPS,
+      });
+
+      if (customerId) {
+        await PaymentEntry.updateMany({ invoice: inv._id }, { $set: { customer: customerId } });
+      }
+
+      await inv.save();
+    } catch (err) {
+      throw err;
+    }
+
+    const customersToSync = new Set([oldCustomerId, customerId ? String(customerId) : null].filter(Boolean));
+    for (const cid of customersToSync) {
+      await syncCustomerInvoices(cid);
+    }
+
+    const out = await Invoice.findById(inv._id).populate("customer", "fullName phone address notes").lean();
+    await attachCreditMetaToInvoice(out);
+    await attachPaymentsRecordedToInvoices([out]);
+    attachDeliverySummaryToInvoices([out]);
+    res.json(out);
+  }
+);
+
+router.patch(
   "/:id/delivery",
-  body("lineItemId").isString().notEmpty(),
   body("delivered").isBoolean(),
+  body("lineItemId").optional().isString().notEmpty(),
+  body("all").optional().isBoolean(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -316,12 +558,22 @@ router.patch(
     const inv = await Invoice.findById(req.params.id);
     if (!inv) return res.status(404).json({ message: "Invoice not found" });
 
-    const { lineItemId, delivered } = req.body;
-    const li = inv.lineItems.id(lineItemId);
-    if (!li) return res.status(404).json({ message: "Line item not found" });
+    const { lineItemId, delivered, all } = req.body;
+    if (all === true) {
+      const now = delivered ? new Date() : null;
+      for (const li of inv.lineItems) {
+        li.delivered = Boolean(delivered);
+        li.deliveredAt = li.delivered ? now : null;
+      }
+    } else if (lineItemId) {
+      const li = inv.lineItems.id(lineItemId);
+      if (!li) return res.status(404).json({ message: "Line item not found" });
+      li.delivered = Boolean(delivered);
+      li.deliveredAt = li.delivered ? new Date() : null;
+    } else {
+      return res.status(400).json({ message: "Provide lineItemId or all: true" });
+    }
 
-    li.delivered = Boolean(delivered);
-    li.deliveredAt = li.delivered ? new Date() : null;
     await inv.save();
 
     const out = await Invoice.findById(inv._id).populate("customer", "fullName phone address notes").lean();

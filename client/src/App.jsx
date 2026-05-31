@@ -46,6 +46,7 @@ export default function App() {
           <Route index element={<Invoices />} />
           <Route path="open" element={<OpenInvoices />} />
           <Route path="new" element={<InvoiceForm />} />
+          <Route path=":id/edit" element={<InvoiceForm />} />
           <Route path=":id" element={<InvoiceDetail />} />
         </Route>
         <Route path="reports" element={<Reports />} />

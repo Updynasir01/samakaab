@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { invoicesApi } from "../api.js";
 import { useAuth } from "../auth.jsx";
@@ -13,6 +13,8 @@ export default function InvoiceDetail() {
   const { profile } = useCompanyProfile();
   const [inv, setInv] = useState(null);
   const [err, setErr] = useState("");
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
+  const selectAllRef = useRef(null);
 
   useEffect(() => {
     invoicesApi
@@ -37,6 +39,7 @@ export default function InvoiceDetail() {
   }
 
   async function toggleDelivered(lineItemId, delivered) {
+    if (deliveryBusy) return;
     try {
       const next = await invoicesApi.setLineDelivered(inv._id, lineItemId, delivered);
       setInv(next);
@@ -44,6 +47,30 @@ export default function InvoiceDetail() {
       setErr(e.message);
     }
   }
+
+  async function setAllDelivered(delivered) {
+    if (deliveryBusy || !inv) return;
+    setDeliveryBusy(true);
+    setErr("");
+    try {
+      const next = await invoicesApi.setAllDelivered(inv._id, delivered);
+      setInv(next);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setDeliveryBusy(false);
+    }
+  }
+
+  const lineItems = inv?.lineItems || [];
+  const allDelivered = lineItems.length > 0 && lineItems.every((li) => li.delivered === true);
+  const someDelivered = lineItems.some((li) => li.delivered === true);
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someDelivered && !allDelivered;
+    }
+  }, [someDelivered, allDelivered, inv]);
 
   if (err && !inv) {
     return <p style={{ color: "var(--danger)" }}>{err}</p>;
@@ -66,11 +93,16 @@ export default function InvoiceDetail() {
             {inv.createdBy ? ` · Entered by: ${inv.createdBy}` : ""}
           </p>
         </div>
-        {isAdmin && (
-          <button type="button" className="btn btn-danger" onClick={remove}>
-            Delete invoice
-          </button>
-        )}
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <Link to={`/invoices/${id}/edit`} className="btn btn-primary">
+            Edit invoice
+          </Link>
+          {isAdmin && (
+            <button type="button" className="btn btn-danger" onClick={remove}>
+              Delete invoice
+            </button>
+          )}
+        </div>
       </div>
       {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
 
@@ -129,12 +161,44 @@ export default function InvoiceDetail() {
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>
-        <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Line items</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
+          <h2 style={{ margin: 0, fontSize: "1.05rem" }}>Line items & delivery</h2>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn"
+              disabled={deliveryBusy || allDelivered || lineItems.length === 0}
+              onClick={() => setAllDelivered(true)}
+            >
+              Mark all delivered
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={deliveryBusy || !someDelivered}
+              onClick={() => setAllDelivered(false)}
+            >
+              Clear all
+            </button>
+          </div>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Delivered</th>
+                <th style={{ width: 72, textAlign: "center" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", cursor: deliveryBusy ? "wait" : "pointer", fontWeight: 600 }}>
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      checked={allDelivered}
+                      disabled={deliveryBusy || lineItems.length === 0}
+                      onChange={(e) => setAllDelivered(e.target.checked)}
+                      title={allDelivered ? "Clear all delivery marks" : "Mark all items delivered"}
+                    />
+                    All
+                  </label>
+                </th>
                 <th>Description</th>
                 <th>Qty</th>
                 <th>Unit</th>
@@ -149,6 +213,7 @@ export default function InvoiceDetail() {
                     <input
                       type="checkbox"
                       checked={row.delivered === true}
+                      disabled={deliveryBusy}
                       onChange={(e) => toggleDelivered(row._id, e.target.checked)}
                       title="Mark item delivered"
                     />

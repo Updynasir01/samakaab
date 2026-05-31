@@ -25,7 +25,6 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
   const dateStr = inv?.date ? new Date(inv.date).toLocaleString() : "";
   const dateShort = inv?.date ? new Date(inv.date).toLocaleDateString() : "";
   const customerName = inv?.customer?.fullName || "Walk-in";
-  const customerPhone = inv?.customer?.phone || "";
   const customerAddress = inv?.customer?.address || "";
   const note = inv?.note || "";
 
@@ -152,7 +151,6 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
     <div class="grid">
       <div class="box">
         <div class="value">${escapeHtml(customerName)}</div>
-        ${customerPhone ? `<div class="muted">${escapeHtml(customerPhone)}</div>` : ""}
         ${customerAddress ? `<div class="muted">${escapeHtml(customerAddress)}</div>` : ""}
       </div>
       <div class="box">

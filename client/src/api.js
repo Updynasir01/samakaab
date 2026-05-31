@@ -124,8 +124,10 @@ export const invoicesApi = {
   byCustomer: (customerId) => api(`/invoices/customer/${customerId}`),
   nextNumber: () => api("/invoices/next-number"),
   get: (id) => api(`/invoices/${id}`),
-  create: (body) => api("/invoices", { method: "POST", body: JSON.stringify(body) }),
+  update: (id, body) => api(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   setLineDelivered: (id, lineItemId, delivered) =>
     api(`/invoices/${id}/delivery`, { method: "PATCH", body: JSON.stringify({ lineItemId, delivered }) }),
+  setAllDelivered: (id, delivered) =>
+    api(`/invoices/${id}/delivery`, { method: "PATCH", body: JSON.stringify({ all: true, delivered }) }),
   remove: (id) => api(`/invoices/${id}`, { method: "DELETE" }),
 };

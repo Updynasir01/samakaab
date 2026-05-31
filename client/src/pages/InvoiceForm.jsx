@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { customersApi, invoicesApi } from "../api.js";
-import { formatMoney, todayISO, BALANCE_EPS } from "../util.js";
+import { formatMoney, todayISO, BALANCE_EPS, invoiceLaterPayments, toInputDate } from "../util.js";
 import { parseInvoiceFile } from "../parseInvoiceSpreadsheet.js";
 
 function round2(n) {
@@ -23,6 +23,8 @@ function normalizeMoneyInput(v) {
 
 export default function InvoiceForm() {
   const navigate = useNavigate();
+  const { id: editId } = useParams();
+  const isEdit = Boolean(editId);
   const [searchParams] = useSearchParams();
   const preCustomer = searchParams.get("customer") || "";
 
@@ -35,17 +37,49 @@ export default function InvoiceForm() {
   const [paidAtSale, setPaidAtSale] = useState("");
   const [note, setNote] = useState("");
   const [items, setItems] = useState([emptyLine()]);
+  const [paymentsApplied, setPaymentsApplied] = useState(0);
   const [err, setErr] = useState("");
   const [uploadHint, setUploadHint] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(isEdit);
 
   useEffect(() => {
     customersApi.list().then(setCustomers).catch(() => {});
+    if (!isEdit) {
+      invoicesApi
+        .nextNumber()
+        .then((d) => setInvoiceNumber(String(d?.invoiceNumber ?? "")))
+        .catch(() => {});
+      return;
+    }
+    setLoading(true);
     invoicesApi
-      .nextNumber()
-      .then((d) => setInvoiceNumber(String(d?.invoiceNumber ?? "")))
-      .catch(() => {});
-  }, []);
+      .get(editId)
+      .then((inv) => {
+        setCustomerId(inv.customer?._id || inv.customer || "");
+        setInvoiceNumber(String(inv.invoiceNumber ?? ""));
+        setOrderNumber(inv.orderNumber || "");
+        setDate(toInputDate(inv.date));
+        setExpectedPayDate(inv.expectedPayDate ? toInputDate(inv.expectedPayDate) : toInputDate(inv.date));
+        setPaidAtSale(Number(inv.paidAtSale || 0) > 0 ? String(inv.paidAtSale) : "");
+        setNote(inv.note || "");
+        setPaymentsApplied(invoiceLaterPayments(inv));
+        setItems(
+          (inv.lineItems || []).length
+            ? inv.lineItems.map((li) => ({
+                id: crypto.randomUUID(),
+                mongoId: li._id,
+                description: li.description || "",
+                quantity: String(li.quantity ?? ""),
+                unit: li.unit || "",
+                unitPrice: String(li.unitPrice ?? ""),
+              }))
+            : [emptyLine()]
+        );
+      })
+      .catch((e) => setErr(e.message || "Could not load invoice"))
+      .finally(() => setLoading(false));
+  }, [editId, isEdit]);
 
   const lineTotals = items.map((row) => {
     const q = round2(row.quantity || 0);
@@ -55,6 +89,7 @@ export default function InvoiceForm() {
   const total = round2(lineTotals.reduce((s, t) => s + t, 0));
   const paidNum = paidAtSale === "" ? 0 : round2(paidAtSale);
   const creditPreview = round2(total - paidNum);
+  const minTotal = round2(paidNum + paymentsApplied);
 
   function addRow() {
     setItems([...items, emptyLine()]);
@@ -93,6 +128,9 @@ export default function InvoiceForm() {
       if (warnings.length > 5) parts.push(`…and ${warnings.length - 5} more warnings.`);
       if (skippedRows) parts.push(`${skippedRows} row(s) skipped.`);
       setUploadHint(parts.join(" ") || `Loaded ${lines.length} line(s).`);
+      if (isEdit) {
+        setUploadHint((h) => `${h} Delivery checkmarks on replaced lines will reset unless you keep original rows.`.trim());
+      }
     } catch (x) {
       setErr(x.message || "Could not read file");
     }
@@ -103,6 +141,10 @@ export default function InvoiceForm() {
     setErr("");
     if (total <= 0) {
       setErr("Add at least one line with a positive total.");
+      return;
+    }
+    if (isEdit && total + BALANCE_EPS < minTotal) {
+      setErr(`Total cannot be below ${formatMoney(minTotal)} — that amount is already paid on this invoice.`);
       return;
     }
     if (creditPreview > BALANCE_EPS && !customerId) {
@@ -116,12 +158,16 @@ export default function InvoiceForm() {
 
     setSaving(true);
     try {
-      const lineItems = items.map((row, i) => ({
-        description: row.description.trim(),
-        quantity: round2(row.quantity),
-        unit: String(row.unit || "").trim(),
-        unitPrice: round2(row.unitPrice),
-      }));
+      const lineItems = items.map((row) => {
+        const line = {
+          description: row.description.trim(),
+          quantity: round2(row.quantity),
+          unit: String(row.unit || "").trim(),
+          unitPrice: round2(row.unitPrice),
+        };
+        if (row.mongoId) line._id = row.mongoId;
+        return line;
+      });
       if (lineItems.some((l) => !l.description || l.quantity < 0 || l.unitPrice < 0)) {
         setErr("Each line needs a description and valid quantity / unit price.");
         setSaving(false);
@@ -134,12 +180,12 @@ export default function InvoiceForm() {
         paidAtSale: paidNum,
         note: note.trim(),
         orderNumber: orderNumber.trim(),
-        ...(customerId ? { customer: customerId } : {}),
+        ...(customerId ? { customer: customerId } : { customer: "" }),
         ...(creditPreview > BALANCE_EPS ? { expectedPayDate: new Date(expectedPayDate).toISOString() } : {}),
-        ...(invoiceNumber && Number(invoiceNumber) > 0 ? { invoiceNumber: Number(invoiceNumber) } : {}),
+        ...(!isEdit && invoiceNumber && Number(invoiceNumber) > 0 ? { invoiceNumber: Number(invoiceNumber) } : {}),
       };
 
-      const inv = await invoicesApi.create(body);
+      const inv = isEdit ? await invoicesApi.update(editId, body) : await invoicesApi.create(body);
       navigate(`/invoices/${inv._id}`, { replace: true });
     } catch (x) {
       setErr(x.message || "Could not save invoice");
@@ -148,16 +194,26 @@ export default function InvoiceForm() {
     }
   }
 
+  if (loading) {
+    return <p style={{ color: "var(--muted)" }}>Loading invoice…</p>;
+  }
+
   return (
     <div>
       <p style={{ marginTop: 0 }}>
-        <Link to="/invoices">← Invoices</Link>
+        <Link to={isEdit ? `/invoices/${editId}` : "/invoices"}>← {isEdit ? "Invoice" : "Invoices"}</Link>
       </p>
-      <h1 style={{ marginTop: 0 }}>New invoice</h1>
+      <h1 style={{ marginTop: 0 }}>{isEdit ? `Edit invoice #${invoiceNumber}` : "New invoice"}</h1>
       <p style={{ color: "var(--muted)", maxWidth: 640 }}>
         Enter each product or service as a line. Set <strong>Paid now</strong> to what the customer pays today (cash or partial). The
         rest goes on credit for the selected customer.
       </p>
+      {isEdit && paymentsApplied > BALANCE_EPS && (
+        <p style={{ color: "var(--muted)", maxWidth: 640, fontSize: "0.9rem" }}>
+          Later payments of <strong>{formatMoney(paymentsApplied)}</strong> are already applied — invoice total cannot go below{" "}
+          <strong>{formatMoney(minTotal)}</strong>.
+        </p>
+      )}
 
       <form onSubmit={onSubmit} className="card" style={{ marginTop: "1rem" }}>
         {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
@@ -193,9 +249,11 @@ export default function InvoiceForm() {
               value={invoiceNumber}
               onChange={(e) => setInvoiceNumber(e.target.value)}
               placeholder="Auto"
+              readOnly={isEdit}
+              style={isEdit ? { background: "var(--bg-soft)" } : undefined}
             />
             <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0 0" }}>
-              Automatically suggested, but you can edit if needed.
+              {isEdit ? "Invoice number cannot be changed." : "Automatically suggested, but you can edit if needed."}
             </p>
           </div>
           <div>
@@ -205,12 +263,17 @@ export default function InvoiceForm() {
         </div>
 
         <h2 style={{ fontSize: "1.05rem", margin: "0 0 0.5rem" }}>Line items</h2>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.35rem" }}>
           <label className="btn" style={{ margin: 0, cursor: "pointer" }}>
             Upload spreadsheet
-            <input type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={onUploadSpreadsheet} />
+            {/* No accept= filter — Windows/OneDrive often hides files in Documents when accept is set */}
+            <input type="file" style={{ display: "none" }} onChange={onUploadSpreadsheet} />
           </label>
         </div>
+        <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.75rem" }}>
+          Excel (.xlsx, .xls) or CSV. In the file picker, choose <strong>All files</strong> if your spreadsheet does not appear
+          (common in Documents / OneDrive folders).
+        </p>
         {uploadHint && (
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0 0 0.75rem" }}>
             {uploadHint}
@@ -328,9 +391,9 @@ export default function InvoiceForm() {
 
         <div style={{ marginTop: "1.25rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           <button type="submit" className="btn btn-primary" disabled={saving}>
-            {saving ? "Saving…" : "Save invoice"}
+            {saving ? "Saving…" : isEdit ? "Save changes" : "Save invoice"}
           </button>
-          <Link to="/invoices" className="btn btn-ghost">
+          <Link to={isEdit ? `/invoices/${editId}` : "/invoices"} className="btn btn-ghost">
             Cancel
           </Link>
         </div>

@@ -151,7 +151,18 @@ export function parseInvoiceSpreadsheet(arrayBuffer, fileName = "") {
   return { lines, warnings, skippedRows };
 }
 
+/** File extensions the uploader accepts (validated after pick — not only via browser filter). */
+export function isSpreadsheetFile(file) {
+  const name = String(file?.name || "");
+  return /\.(xlsx|xls|xlsm|xlsb|csv|ods)$/i.test(name);
+}
+
 export function parseInvoiceFile(file) {
+  if (!isSpreadsheetFile(file)) {
+    return Promise.reject(
+      new Error("Please choose an Excel file (.xlsx, .xls) or CSV. Other file types are not supported.")
+    );
+  }
   return file.arrayBuffer().then((buf) => parseInvoiceSpreadsheet(buf, file.name));
 }
 
