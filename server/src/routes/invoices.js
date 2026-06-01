@@ -79,7 +79,7 @@ router.get(
   query("date").optional().isISO8601(),
   async (req, res) => {
     await syncCustomersWithOpenDebt();
-    const limit = Number(req.query.limit) || 100;
+    const limit = Number(req.query.limit) || 50;
     const skip = Number(req.query.skip) || 0;
     const filter = await buildInvoiceListFilter(req.query);
     const [total, list] = await Promise.all([
