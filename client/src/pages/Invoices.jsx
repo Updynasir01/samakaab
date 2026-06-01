@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { invoicesApi } from "../api.js";
-import { formatMoney, invoiceMatchesFilter, enteredByLabel, invoiceLaterPayments, BALANCE_EPS } from "../util.js";
+import { formatMoney, enteredByLabel, invoiceLaterPayments, BALANCE_EPS } from "../util.js";
+
+const PAGE_SIZE = 100;
 
 function statusLabel(s) {
   if (s === "paid") return <span className="badge badge-ok">Paid</span>;
@@ -11,22 +13,82 @@ function statusLabel(s) {
 
 export default function Invoices() {
   const [list, setList] = useState([]);
+  const [total, setTotal] = useState(0);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [q, setQ] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
 
-  const filtered = useMemo(
-    () => list.filter((inv) => invoiceMatchesFilter(inv, q, { status: statusFilter, date: dateFilter })),
-    [list, q, statusFilter, dateFilter]
+  const hasMore = list.length < total;
+  const showingAll = total > 0 && list.length >= total;
+
+  const fetchPage = useCallback(
+    async ({ skip = 0, append = false, limit = PAGE_SIZE } = {}) => {
+      const params = {
+        limit,
+        skip,
+        ...(q.trim() ? { q: q.trim() } : {}),
+        ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+        ...(dateFilter ? { date: dateFilter } : {}),
+      };
+      const data = await invoicesApi.list(params);
+      const items = data?.items ?? (Array.isArray(data) ? data : []);
+      const count = data?.total ?? items.length;
+      setTotal(count);
+      setList((prev) => (append ? [...prev, ...items] : items));
+      return { items, total: count };
+    },
+    [q, statusFilter, dateFilter]
   );
 
   useEffect(() => {
-    invoicesApi
-      .list(100)
-      .then(setList)
-      .catch((e) => setErr(e.message));
-  }, []);
+    setLoading(true);
+    setErr("");
+    fetchPage({ skip: 0, append: false })
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoading(false));
+  }, [fetchPage]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setQ(searchInput), 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    setErr("");
+    try {
+      await fetchPage({ skip: list.length, append: true });
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  async function showAll() {
+    if (loadingMore || showingAll) return;
+    setLoadingMore(true);
+    setErr("");
+    try {
+      await fetchPage({ skip: 0, append: false, limit: Math.min(total || PAGE_SIZE, 500) });
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  function clearFilters() {
+    setSearchInput("");
+    setQ("");
+    setStatusFilter("all");
+    setDateFilter("");
+  }
 
   return (
     <div>
@@ -42,9 +104,7 @@ export default function Invoices() {
         </div>
       </div>
       <p style={{ color: "var(--muted)", marginTop: "0.5rem", maxWidth: 640 }}>
-        Register every sale with line items. If the customer pays in full (cash or card), no credit is recorded. If something stays
-        unpaid, choose an existing customer so the amount is added to their balance — you can record further payments on their
-        customer page.
+        Register every sale with line items. Search finds invoices across the whole database — not only the first page.
       </p>
       {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
       <div className="card" style={{ marginTop: "1rem" }}>
@@ -61,9 +121,9 @@ export default function Invoices() {
             <label htmlFor="inv-search">Search invoices</label>
             <input
               id="inv-search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Customer, invoice #, user, status…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Customer, invoice #, order, note…"
             />
           </div>
           <div style={{ flex: "0 1 160px", minWidth: 150 }}>
@@ -79,24 +139,16 @@ export default function Invoices() {
               <option value="unpaid">Unpaid</option>
             </select>
           </div>
-          {(q.trim() || statusFilter !== "all" || dateFilter) && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ marginBottom: 2 }}
-              onClick={() => {
-                setQ("");
-                setStatusFilter("all");
-                setDateFilter("");
-              }}
-            >
+          {(searchInput.trim() || statusFilter !== "all" || dateFilter) && (
+            <button type="button" className="btn btn-ghost" style={{ marginBottom: 2 }} onClick={clearFilters}>
               Clear
             </button>
           )}
         </div>
-        {list.length > 0 && (
+        {!loading && total > 0 && (
           <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem", color: "var(--muted)" }}>
-            Showing {filtered.length} of {list.length} invoice{list.length === 1 ? "" : "s"}
+            Showing {list.length} of {total} invoice{total === 1 ? "" : "s"}
+            {q.trim() ? ` matching “${q.trim()}”` : ""}
           </p>
         )}
         <div className="table-wrap">
@@ -115,41 +167,58 @@ export default function Invoices() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && list.length > 0 ? (
+              {loading ? (
                 <tr>
                   <td colSpan={9} style={{ color: "var(--muted)" }}>
-                    No invoices match your search.
+                    Loading invoices…
+                  </td>
+                </tr>
+              ) : list.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ color: "var(--muted)" }}>
+                    {q.trim() || statusFilter !== "all" || dateFilter
+                      ? "No invoices match your search."
+                      : "No invoices yet."}
                   </td>
                 </tr>
               ) : (
-              filtered.map((inv) => (
-                <tr key={inv._id}>
-                  <td>
-                    <Link to={`/invoices/${inv._id}`}>#{inv.invoiceNumber}</Link>
-                  </td>
-                  <td>{new Date(inv.date).toLocaleDateString()}</td>
-                  <td>
-                    {inv.customer ? (
-                      <Link to={`/customers/${inv.customer._id}`}>{inv.customer.fullName}</Link>
-                    ) : (
-                      <span style={{ color: "var(--muted)" }}>Walk-in</span>
-                    )}
-                  </td>
-                  <td>{formatMoney(inv.total)}</td>
-                  <td>{formatMoney(inv.paidAtSale)}</td>
-                  <td>
-                    {invoiceLaterPayments(inv) > BALANCE_EPS ? formatMoney(invoiceLaterPayments(inv)) : "—"}
-                  </td>
-                  <td>{inv.creditAmount > 0 ? formatMoney(inv.creditAmount) : "—"}</td>
-                  <td>{statusLabel(inv.paymentStatus)}</td>
-                  <td>{enteredByLabel(inv)}</td>
-                </tr>
-              ))
+                list.map((inv) => (
+                  <tr key={inv._id}>
+                    <td>
+                      <Link to={`/invoices/${inv._id}`}>#{inv.invoiceNumber}</Link>
+                    </td>
+                    <td>{new Date(inv.date).toLocaleDateString()}</td>
+                    <td>
+                      {inv.customer ? (
+                        <Link to={`/customers/${inv.customer._id}`}>{inv.customer.fullName}</Link>
+                      ) : (
+                        <span style={{ color: "var(--muted)" }}>Walk-in</span>
+                      )}
+                    </td>
+                    <td>{formatMoney(inv.total)}</td>
+                    <td>{formatMoney(inv.paidAtSale)}</td>
+                    <td>
+                      {invoiceLaterPayments(inv) > BALANCE_EPS ? formatMoney(invoiceLaterPayments(inv)) : "—"}
+                    </td>
+                    <td>{inv.creditAmount > 0 ? formatMoney(inv.creditAmount) : "—"}</td>
+                    <td>{statusLabel(inv.paymentStatus)}</td>
+                    <td>{enteredByLabel(inv)}</td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
-        {list.length === 0 && !err && <p style={{ color: "var(--muted)", margin: 0 }}>No invoices yet.</p>}
+        {!loading && hasMore && (
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "1rem" }}>
+            <button type="button" className="btn" disabled={loadingMore} onClick={loadMore}>
+              {loadingMore ? "Loading…" : `Load more (${total - list.length} remaining)`}
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={loadingMore} onClick={showAll}>
+              Show all ({total})
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

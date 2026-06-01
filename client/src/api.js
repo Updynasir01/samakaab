@@ -119,7 +119,16 @@ export const settingsApi = {
 };
 
 export const invoicesApi = {
-  list: (limit) => api(`/invoices${limit ? `?limit=${limit}` : ""}`),
+  list: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit != null) q.set("limit", String(params.limit));
+    if (params.skip != null) q.set("skip", String(params.skip));
+    if (params.q) q.set("q", params.q);
+    if (params.status && params.status !== "all") q.set("status", params.status);
+    if (params.date) q.set("date", params.date);
+    const qs = q.toString();
+    return api(`/invoices${qs ? `?${qs}` : ""}`);
+  },
   open: (limit) => api(`/invoices/open${limit ? `?limit=${limit}` : ""}`),
   byCustomer: (customerId) => api(`/invoices/customer/${customerId}`),
   nextNumber: () => api("/invoices/next-number"),

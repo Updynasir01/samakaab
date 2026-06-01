@@ -72,20 +72,71 @@ async function attachPaymentsRecordedToInvoices(list) {
 
 router.get(
   "/",
-  query("limit").optional().isInt({ min: 1, max: 200 }),
+  query("limit").optional().isInt({ min: 1, max: 500 }),
+  query("skip").optional().isInt({ min: 0 }),
+  query("q").optional().trim(),
+  query("status").optional().isIn(["all", "paid", "partial", "unpaid"]),
+  query("date").optional().isISO8601(),
   async (req, res) => {
     await syncCustomersWithOpenDebt();
-    const limit = Number(req.query.limit) || 80;
-    const list = await Invoice.find()
-      .populate("customer", "fullName phone")
-      .sort({ date: -1, invoiceNumber: -1 })
-      .limit(limit)
-      .lean();
+    const limit = Number(req.query.limit) || 100;
+    const skip = Number(req.query.skip) || 0;
+    const filter = await buildInvoiceListFilter(req.query);
+    const [total, list] = await Promise.all([
+      Invoice.countDocuments(filter),
+      Invoice.find(filter)
+        .populate("customer", "fullName phone")
+        .sort({ date: -1, invoiceNumber: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
     await attachPaymentsRecordedToInvoices(list);
     attachDeliverySummaryToInvoices(list);
-    res.json(list);
+    res.json({ items: list, total, limit, skip });
   }
 );
+
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function buildInvoiceListFilter({ q, status, date } = {}) {
+  const filter = {};
+  if (status && status !== "all") filter.paymentStatus = status;
+  if (date) {
+    const start = new Date(date);
+    if (!Number.isNaN(start.getTime())) {
+      const end = new Date(start);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+      filter.date = { $gte: start, $lte: end };
+    }
+  }
+  const needle = String(q || "").trim();
+  if (!needle) return filter;
+
+  const rx = new RegExp(escapeRegex(needle), "i");
+  const or = [
+    { orderNumber: rx },
+    { note: rx },
+    { createdBy: rx },
+    { "lineItems.description": rx },
+  ];
+  if (/^\d+$/.test(needle)) {
+    or.push({ invoiceNumber: Number(needle) });
+  }
+  const customers = await Customer.find({
+    $or: [{ fullName: rx }, { phone: rx }],
+  })
+    .select("_id")
+    .lean();
+  if (customers.length) {
+    or.push({ customer: { $in: customers.map((c) => c._id) } });
+  }
+  filter.$or = or;
+  return filter;
+}
 
 router.get("/customer/:customerId", async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.customerId)) {
