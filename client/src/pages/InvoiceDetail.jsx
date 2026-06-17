@@ -110,19 +110,7 @@ export default function InvoiceDetail() {
         <p style={{ margin: "0 0 0.5rem" }}>
           <strong>Status:</strong> {inv.paymentStatus} · <strong>Total:</strong> {formatMoney(inv.total)} ·{" "}
           <strong>Paid at sale:</strong> {formatMoney(inv.paidAtSale)} · <strong>Later payments:</strong>{" "}
-          {invoiceLaterPayments(inv) > BALANCE_EPS ? (
-            <>
-              {formatMoney(invoiceLaterPayments(inv))}
-              {Number(inv.paymentsFromAccount) > BALANCE_EPS ? (
-                <span style={{ color: "var(--muted)", fontSize: "0.9em" }}>
-                  {" "}
-                  (incl. {formatMoney(inv.paymentsFromAccount)} from customer account)
-                </span>
-              ) : null}
-            </>
-          ) : (
-            "—"
-          )}{" "}
+          {invoiceLaterPayments(inv) > BALANCE_EPS ? formatMoney(invoiceLaterPayments(inv)) : "—"}{" "}
           · <strong>Remaining:</strong>{" "}
           {inv.creditAmount > 0 ? formatMoney(inv.creditAmount) : "—"}
         </p>

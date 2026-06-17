@@ -62,7 +62,7 @@ export function enteredByLabel(record) {
   return v && String(v).trim() ? String(v) : "—";
 }
 
-/** Total credit paid down on an invoice (linked payments + FIFO from customer account). */
+/** Payments linked to this invoice (does not include general account payments). */
 export function invoiceLaterPayments(inv) {
   if (inv?.paymentsApplied != null) return Number(inv.paymentsApplied) || 0;
   return Number(inv?.paymentsRecorded) || 0;

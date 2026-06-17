@@ -198,6 +198,9 @@ export default function CustomerDetail() {
   const totalCreditAmt = credits.reduce((s, cr) => s + (Number(cr.amount) || 0), 0);
 
   const visiblePayments = payments.filter((p) => !isExcludedPaymentNote(p.note));
+  const unlinkedPaymentAmt = visiblePayments
+    .filter((p) => !p.invoice)
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
   const paymentRowsMerged = [
     ...visiblePayments.map((p) => ({
@@ -424,7 +427,7 @@ export default function CustomerDetail() {
                       <th>Date</th>
                       <th>Total</th>
                       <th>Paid at sale</th>
-                      <th>Later payments</th>
+                      <th>Later payments (linked)</th>
                       <th>Remaining</th>
                       <th>Status</th>
                       <th>Entered by</th>
@@ -450,23 +453,7 @@ export default function CustomerDetail() {
                           <td>{new Date(inv.date).toLocaleDateString()}</td>
                           <td>{formatMoney(inv.total)}</td>
                           <td>{pas > EPS ? formatMoney(pas) : "—"}</td>
-                          <td>
-                            {later > EPS ? (
-                              <>
-                                {formatMoney(later)}
-                                {Number(inv.paymentsFromAccount) > EPS ? (
-                                  <span
-                                    style={{ display: "block", fontSize: "0.75rem", color: "var(--muted)", fontWeight: 400 }}
-                                    title="From general payments on this customer (not linked to a specific invoice)"
-                                  >
-                                    from account
-                                  </span>
-                                ) : null}
-                              </>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
+                          <td>{later > EPS ? formatMoney(later) : "—"}</td>
                           <td>{remaining > EPS ? formatMoney(remaining) : "—"}</td>
                           <td>{inv.paymentStatus}</td>
                           <td>{enteredByLabel(inv)}</td>
@@ -489,6 +476,11 @@ export default function CustomerDetail() {
                 (credit {formatMoney(customer.totalCredit)} − paid {formatMoney(customer.totalPayments)})
               </span>
             </p>
+            {unlinkedPaymentAmt > EPS && (
+              <p style={{ margin: "0.5rem 0 0", fontSize: "0.85rem", color: "var(--muted)" }}>
+                <strong>{formatMoney(unlinkedPaymentAmt)}</strong> paid on account (not linked to a specific invoice) — reduces balance above but does not auto-mark invoices paid. Link a payment to an invoice when paying for that bill.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-2" style={{ marginBottom: "1rem" }}>
@@ -678,7 +670,7 @@ export default function CustomerDetail() {
               <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Payments</h2>
               <p className="no-print" style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.5rem" }}>
                 <strong>Dis</strong>: <strong>Payment recorded</strong> (Add payment) or <strong>At sale pay</strong> (cash on the invoice when sold).{" "}
-                <strong>Total payments</strong> matches account balance (credit − paid). Payments with no invoice link still count — the system applies them to the oldest open invoice (see <strong>Later payments → from account</strong> above).
+                <strong>Total payments</strong> matches account balance (credit − paid). To mark an invoice paid, link the payment to that invoice when recording it.
               </p>
               <div className="table-wrap">
                 <table>

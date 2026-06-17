@@ -170,7 +170,7 @@ export default function Invoices() {
                 <th>Customer</th>
                 <th>Total</th>
                 <th>Paid at sale</th>
-                <th>Later payments</th>
+                <th>Later payments (linked)</th>
                 <th>Remaining</th>
                 <th>Status</th>
                 <th>Entered by</th>

@@ -60,11 +60,9 @@ async function attachPaymentsRecordedToInvoices(list) {
     const linked = linkedMap.get(String(inv._id)) ?? 0;
     const original = originalCreditForInvoice(inv, creditMap);
     const remaining = round2(Number(inv.creditAmount || 0));
-    const applied = Math.max(0, round2(original - remaining));
-    const fromAccount = Math.max(0, round2(applied - linked));
     inv.paymentsRecorded = linked;
-    inv.paymentsApplied = applied;
-    inv.paymentsFromAccount = fromAccount;
+    inv.paymentsApplied = linked;
+    inv.paymentsFromAccount = 0;
     inv.originalCredit = original;
   }
   return list;

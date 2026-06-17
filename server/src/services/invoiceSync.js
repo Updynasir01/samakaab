@@ -29,10 +29,10 @@ function paymentStatusFor(remaining, paidAtSale, original) {
 /**
  * Reconcile each invoice's remaining credit and status from:
  * - original credit (CreditEntry or total − paidAtSale)
- * - payments linked to that invoice
- * - unlinked customer payments applied oldest-invoice-first (FIFO)
+ * - payments **linked** to that invoice only (not general account payments)
  *
- * CreditEntry amounts are left unchanged so customer balance (credits − payments) stays correct.
+ * Unlinked payments reduce customer balance (credits − payments) but do not auto-mark invoices paid.
+ * CreditEntry amounts are left unchanged.
  */
 export async function syncCustomerInvoices(customerId) {
   const invoices = await Invoice.find({ customer: customerId })
@@ -47,46 +47,29 @@ export async function syncCustomerInvoices(customerId) {
     : [];
   const creditMap = new Map(credits.map((c) => [String(c._id), c]));
 
-  const payments = await PaymentEntry.find({ customer: customerId })
-    .sort({ paidAt: 1, _id: 1 })
-    .lean();
+  const payments = await PaymentEntry.find({ customer: customerId }).lean();
 
   const linkedByInv = new Map();
-  let unlinkedPool = 0;
   for (const p of payments) {
     if (EXCLUDED_PAYMENT_NOTE.test(p.note || "")) continue;
+    if (!p.invoice) continue;
     const amt = Number(p.amount || 0);
-    if (p.invoice) {
-      const k = String(p.invoice);
-      linkedByInv.set(k, (linkedByInv.get(k) || 0) + amt);
-    } else {
-      unlinkedPool += amt;
-    }
+    const k = String(p.invoice);
+    linkedByInv.set(k, (linkedByInv.get(k) || 0) + amt);
   }
 
-  const withCredit = [];
+  let updated = 0;
   for (const inv of invoices) {
     const original = originalCreditForInvoice(inv, creditMap);
     if (original <= EPS) {
       if (inv.paymentStatus !== "paid" || Number(inv.creditAmount || 0) > EPS) {
         await Invoice.updateOne({ _id: inv._id }, { $set: { paymentStatus: "paid", creditAmount: 0 } });
+        updated += 1;
       }
       continue;
     }
     const linked = linkedByInv.get(String(inv._id)) || 0;
-    const afterLinked = Math.max(0, round2(original - linked));
-    withCredit.push({ inv, original, afterLinked });
-  }
-
-  for (const row of withCredit) {
-    const applied = Math.min(unlinkedPool, row.afterLinked);
-    row.remaining = round2(Math.max(0, row.afterLinked - applied));
-    unlinkedPool = round2(Math.max(0, unlinkedPool - applied));
-  }
-
-  let updated = 0;
-  for (const row of withCredit) {
-    const { inv, original, remaining } = row;
+    const remaining = Math.max(0, round2(original - linked));
     const paidAtSale = Number(inv.paidAtSale || 0);
     const paymentStatus = paymentStatusFor(remaining, paidAtSale, original);
     const creditAmount = remaining > EPS ? remaining : 0;
