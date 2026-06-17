@@ -450,7 +450,23 @@ export default function CustomerDetail() {
                           <td>{new Date(inv.date).toLocaleDateString()}</td>
                           <td>{formatMoney(inv.total)}</td>
                           <td>{pas > EPS ? formatMoney(pas) : "—"}</td>
-                          <td>{later > EPS ? formatMoney(later) : "—"}</td>
+                          <td>
+                            {later > EPS ? (
+                              <>
+                                {formatMoney(later)}
+                                {Number(inv.paymentsFromAccount) > EPS ? (
+                                  <span
+                                    style={{ display: "block", fontSize: "0.75rem", color: "var(--muted)", fontWeight: 400 }}
+                                    title="From general payments on this customer (not linked to a specific invoice)"
+                                  >
+                                    from account
+                                  </span>
+                                ) : null}
+                              </>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
                           <td>{remaining > EPS ? formatMoney(remaining) : "—"}</td>
                           <td>{inv.paymentStatus}</td>
                           <td>{enteredByLabel(inv)}</td>
@@ -662,7 +678,7 @@ export default function CustomerDetail() {
               <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Payments</h2>
               <p className="no-print" style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.5rem" }}>
                 <strong>Dis</strong>: <strong>Payment recorded</strong> (Add payment) or <strong>At sale pay</strong> (cash on the invoice when sold).{" "}
-                <strong>Total payments</strong> matches account balance (credit − paid).
+                <strong>Total payments</strong> matches account balance (credit − paid). Payments with no invoice link still count — the system applies them to the oldest open invoice (see <strong>Later payments → from account</strong> above).
               </p>
               <div className="table-wrap">
                 <table>
