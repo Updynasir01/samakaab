@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "seed": "node src/seed.js",
     "sync-invoices": "node src/syncInvoices.js",
-    "repair-partial-payments": "node src/repairPartialPayments.js"
+    "repair-partial-payments": "node src/repairPartialPayments.js",
+    "backup": "node src/exportBackup.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

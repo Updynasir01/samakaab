@@ -118,6 +118,10 @@ export const settingsApi = {
   updateCompany: (body) => api("/settings/company", { method: "PATCH", body: JSON.stringify(body) }),
 };
 
+export const backupApi = {
+  exportAll: () => api("/backup"),
+};
+
 export const invoicesApi = {
   list: (params = {}) => {
     const q = new URLSearchParams();

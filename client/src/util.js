@@ -49,7 +49,11 @@ export function downloadCsv(filename, header, rows) {
   const lines = [csvLine(header), ...rows.map((r) => csvLine(r))];
   const BOM = "\uFEFF";
   const text = BOM + lines.join("\r\n");
-  const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
+  downloadBlob(filename, new Blob([text], { type: "text/csv;charset=utf-8;" }));
+}
+
+/** Trigger download of a file blob. */
+export function downloadBlob(filename, blob) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = filename;

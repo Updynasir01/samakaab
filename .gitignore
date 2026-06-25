@@ -4,6 +4,7 @@
 ### builds
 client/dist/
 **/.vite/
+server/backups/
 
 ### env / secrets
 **/.env
