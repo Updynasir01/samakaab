@@ -10,7 +10,99 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function buildLedgerRows(rows, finalBalance) {
+function statementFileSuffix(filters = {}) {
+  const bits = [];
+  if (filters.year && filters.month) {
+    bits.push(`${filters.year}-${String(filters.month).padStart(2, "0")}`);
+  }
+  if (filters.invoiceStatus && filters.invoiceStatus !== "all") {
+    bits.push(filters.invoiceStatus);
+  }
+  return bits.length ? `-${bits.join("-")}` : "";
+}
+
+/** Keep rows for a month (by transaction date) and/or paid vs unpaid invoices. */
+export function filterAccountStatementRows(rows, invoices, { year, month, invoiceStatus = "all" } = {}) {
+  const invById = new Map(invoices.map((i) => [String(i._id), i]));
+
+  function linkedInvoice(row) {
+    if (!row.invoiceId) return null;
+    return invById.get(String(row.invoiceId)) ?? null;
+  }
+
+  function inMonth(row) {
+    if (!year || !month) return true;
+    const d = new Date(row.date);
+    return !Number.isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() + 1 === month;
+  }
+
+  function matchesStatus(row) {
+    if (invoiceStatus === "all") return true;
+    const inv = linkedInvoice(row);
+    if (!inv) {
+      if (row.dis === "Credit") return invoiceStatus === "unpaid";
+      return false;
+    }
+    const paid = inv.paymentStatus === "paid";
+    return invoiceStatus === "paid" ? paid : !paid;
+  }
+
+  return (rows || []).filter((r) => inMonth(r) && matchesStatus(r));
+}
+
+export function computeStatementOpeningBalance(allRows, year, month) {
+  if (!year || !month) return 0;
+  const start = new Date(year, month - 1, 1).getTime();
+  let bal = 0;
+  const sorted = [...(allRows || [])].sort((a, b) => (a.sortTime || 0) - (b.sortTime || 0));
+  for (const r of sorted) {
+    if ((r.sortTime || 0) >= start) break;
+    bal += r.dis === "Credit" ? Number(r.amount || 0) : -Number(r.amount || 0);
+  }
+  return Math.max(0, bal);
+}
+
+export function buildStatementPeriodLabel({ year, month, invoiceStatus = "all" } = {}) {
+  const parts = [];
+  if (year && month) {
+    parts.push(new Date(year, month - 1, 1).toLocaleString("default", { month: "long", year: "numeric" }));
+  }
+  if (invoiceStatus === "paid") parts.push("paid invoices only");
+  if (invoiceStatus === "unpaid") parts.push("unpaid invoices only");
+  return parts.length ? parts.join(" — ") : "All activity";
+}
+
+export function prepareAccountStatement(allRows, invoices, filters, customerBalance) {
+  const filtered = filterAccountStatementRows(allRows, invoices, filters);
+  const openingBalance = computeStatementOpeningBalance(allRows, filters.year, filters.month);
+  const isFiltered = Boolean((filters.year && filters.month) || filters.invoiceStatus !== "all");
+
+  const totalCredit = filtered
+    .filter((r) => r.dis === "Credit")
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const totalPayments = filtered
+    .filter((r) => r.dis !== "Credit")
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+  const ledgerRows = buildLedgerRows(filtered, isFiltered ? null : customerBalance, { openingBalance });
+  const balance = isFiltered
+    ? ledgerRows.length
+      ? ledgerRows[ledgerRows.length - 1].outstanding
+      : openingBalance
+    : Number(customerBalance ?? 0);
+
+  return {
+    rows: filtered,
+    totals: { totalCredit, totalPayments, balance, openingBalance },
+    exportOptions: {
+      periodLabel: buildStatementPeriodLabel(filters),
+      openingBalance,
+      filters,
+    },
+  };
+}
+
+function buildLedgerRows(rows, finalBalance, { openingBalance = 0 } = {}) {
   const events = (rows || [])
     .map((r) => {
       const amount = Number(r.amount || 0);
@@ -28,13 +120,18 @@ function buildLedgerRows(rows, finalBalance) {
     })
     .sort((a, b) => a.sortTime - b.sortTime);
 
-  let runningOutstanding = 0;
+  let runningOutstanding = Math.max(0, openingBalance);
   const ledger = events.map((e) => {
     runningOutstanding += e.amountDue - e.totalPaid;
     return { ...e, outstanding: Math.max(0, runningOutstanding) };
   });
 
-  if (ledger.length && finalBalance != null && !Number.isNaN(Number(finalBalance))) {
+  if (
+    ledger.length &&
+    finalBalance != null &&
+    !Number.isNaN(Number(finalBalance)) &&
+    openingBalance === 0
+  ) {
     ledger[ledger.length - 1].outstanding = Math.max(0, Number(finalBalance));
   }
   return ledger;
@@ -44,11 +141,20 @@ function buildLedgerRows(rows, finalBalance) {
  * HTML for Word (.doc), print preview, same layout as PDF.
  * No "Account report" title — customer name + statement wording only.
  * @param {object} company - from useCompanyProfile().profile
+ * @param {object} [exportOptions] - periodLabel, openingBalance
  */
-export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayments, balance }, company = DEFAULT_COMPANY) {
+export function buildAccountReportHtml(
+  customer,
+  rows,
+  { totalCredit, totalPayments, balance, openingBalance },
+  company = DEFAULT_COMPANY,
+  exportOptions = {}
+) {
   const c = company || DEFAULT_COMPANY;
   const today = new Date().toLocaleDateString();
-  const ledgerRows = buildLedgerRows(rows, balance);
+  const periodLabel = exportOptions.periodLabel || "";
+  const opening = exportOptions.openingBalance ?? openingBalance ?? 0;
+  const ledgerRows = buildLedgerRows(rows, balance, { openingBalance: opening });
   const rowHtml = ledgerRows
     .map(
       (r) => `<tr>
@@ -119,6 +225,8 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
     <div class="meta">
       <div class="left">
         <div><strong>Customer:</strong> ${escapeHtml(customer.fullName)}</div>
+        ${periodLabel ? `<div><strong>Period:</strong> ${escapeHtml(periodLabel)}</div>` : ""}
+        ${opening > 0 ? `<div><strong>Opening balance:</strong> ${escapeHtml(formatMoney(opening))}</div>` : ""}
         ${customer.address ? `<div><strong></strong> ${escapeHtml(customer.address)}</div>` : ""}
       </div>
       <div class="right">
@@ -156,12 +264,12 @@ export function buildAccountReportHtml(customer, rows, { totalCredit, totalPayme
 </html>`;
 }
 
-export function downloadAccountReportWord(customer, rows, totals, company) {
-  const html = buildAccountReportHtml(customer, rows, totals, company);
+export function downloadAccountReportWord(customer, rows, totals, company, exportOptions = {}) {
+  const html = buildAccountReportHtml(customer, rows, totals, company, exportOptions);
   const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `${safeFileSegment(customer.fullName)}-account-statement.doc`;
+  a.download = `${safeFileSegment(customer.fullName)}-account-statement${statementFileSuffix(exportOptions.filters)}.doc`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -178,14 +286,16 @@ export function printAccountReportFromHtml(html) {
   }, 300);
 }
 
-export function downloadAccountReportPdf(customer, rows, totals, company = DEFAULT_COMPANY) {
+export function downloadAccountReportPdf(customer, rows, totals, company = DEFAULT_COMPANY, exportOptions = {}) {
   const c = company || DEFAULT_COMPANY;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const m = 12;
   let y = m;
   const now = new Date().toLocaleDateString();
-  const ledgerRows = buildLedgerRows(rows, balance);
+  const periodLabel = exportOptions.periodLabel || "";
+  const opening = exportOptions.openingBalance ?? totals.openingBalance ?? 0;
+  const ledgerRows = buildLedgerRows(rows, totals.balance, { openingBalance: opening });
 
   doc.setFillColor(242, 244, 246);
   doc.rect(m, y - 5, pageW - m * 2, 12, "F");
@@ -204,6 +314,21 @@ export function downloadAccountReportPdf(customer, rows, totals, company = DEFAU
   doc.setFontSize(10);
   doc.text("Customer:", m, y);
   doc.text(customer.fullName, m + 20, y);
+  y += 5;
+  if (periodLabel) {
+    doc.setFont("helvetica", "bold");
+    doc.text("Period:", m, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(periodLabel, m + 20, y);
+    y += 5;
+  }
+  if (opening > 0) {
+    doc.setFont("helvetica", "bold");
+    doc.text("Opening:", m, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(formatMoney(opening), m + 20, y);
+    y += 5;
+  }
   doc.setFont("helvetica", "normal");
 
   const boxX = pageW - m - 66;
@@ -265,5 +390,5 @@ export function downloadAccountReportPdf(customer, rows, totals, company = DEFAU
     }
   }
 
-  doc.save(`${safeFileSegment(customer.fullName)}-account-statement.pdf`);
+  doc.save(`${safeFileSegment(customer.fullName)}-account-statement${statementFileSuffix(exportOptions.filters)}.pdf`);
 }

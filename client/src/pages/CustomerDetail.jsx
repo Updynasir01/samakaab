@@ -9,7 +9,13 @@ import {
   downloadAccountReportPdf,
   downloadAccountReportWord,
   printAccountReportFromHtml,
+  prepareAccountStatement,
 } from "../accountReportExport.js";
+
+const STATEMENT_MONTHS = Array.from({ length: 12 }, (_, i) => ({
+  value: i + 1,
+  label: new Date(2000, i, 1).toLocaleString("default", { month: "long" }),
+}));
 
 const EPS = BALANCE_EPS;
 
@@ -37,6 +43,11 @@ export default function CustomerDetail() {
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("all");
   const [invoiceDateFilter, setInvoiceDateFilter] = useState("");
+  const now = new Date();
+  const [statementAllTime, setStatementAllTime] = useState(true);
+  const [statementYear, setStatementYear] = useState(now.getFullYear());
+  const [statementMonth, setStatementMonth] = useState(now.getMonth() + 1);
+  const [statementInvoiceFilter, setStatementInvoiceFilter] = useState("all");
 
   useEffect(() => {
     if (isNew) return;
@@ -271,25 +282,35 @@ export default function CustomerDetail() {
     }),
   ].sort((a, b) => b.sortTime - a.sortTime);
 
-  const reportTotals = {
-    totalCredit: totalCreditAmt,
-    totalPayments: totalPaymentAmt,
-    balance: Number(customer?.balance ?? 0),
+  const statementFilters = {
+    year: statementAllTime ? null : statementYear,
+    month: statementAllTime ? null : statementMonth,
+    invoiceStatus: statementInvoiceFilter,
   };
+
+  const preparedStatement = prepareAccountStatement(
+    accountReportRows,
+    invoices,
+    statementFilters,
+    customer?.balance
+  );
 
   function handlePrintReport() {
     if (!customer) return;
-    printAccountReportFromHtml(buildAccountReportHtml(customer, accountReportRows, reportTotals, profile));
+    const { rows, totals, exportOptions } = preparedStatement;
+    printAccountReportFromHtml(buildAccountReportHtml(customer, rows, totals, profile, exportOptions));
   }
 
   function handleDownloadPdf() {
     if (!customer) return;
-    downloadAccountReportPdf(customer, accountReportRows, reportTotals, profile);
+    const { rows, totals, exportOptions } = preparedStatement;
+    downloadAccountReportPdf(customer, rows, totals, profile, exportOptions);
   }
 
   function handleDownloadWord() {
     if (!customer) return;
-    downloadAccountReportWord(customer, accountReportRows, reportTotals, profile);
+    const { rows, totals, exportOptions } = preparedStatement;
+    downloadAccountReportWord(customer, rows, totals, profile, exportOptions);
   }
 
   return (
@@ -345,6 +366,85 @@ export default function CustomerDetail() {
 
       {!isNew && customer && (
         <>
+          <div className="card" style={{ marginBottom: "1rem" }}>
+            <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Account statement</h2>
+            <p style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: "var(--muted)" }}>
+              Choose what to include, then print or download (same table layout: Dis, amounts, totals).
+            </p>
+            <div className="grid grid-2" style={{ gap: "0.75rem", marginBottom: "0.75rem" }}>
+              <div>
+                <label htmlFor="stmt-period">Period</label>
+                <select
+                  id="stmt-period"
+                  value={statementAllTime ? "all" : "month"}
+                  onChange={(e) => setStatementAllTime(e.target.value === "all")}
+                >
+                  <option value="all">All time</option>
+                  <option value="month">One month only</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="stmt-invoices">Invoices</label>
+                <select
+                  id="stmt-invoices"
+                  value={statementInvoiceFilter}
+                  onChange={(e) => setStatementInvoiceFilter(e.target.value)}
+                >
+                  <option value="all">All invoices &amp; payments</option>
+                  <option value="paid">Paid invoices only</option>
+                  <option value="unpaid">Unpaid invoices only</option>
+                </select>
+              </div>
+            </div>
+            {!statementAllTime && (
+              <div className="grid grid-2" style={{ gap: "0.75rem", marginBottom: "0.75rem" }}>
+                <div>
+                  <label htmlFor="stmt-year">Year</label>
+                  <input
+                    id="stmt-year"
+                    type="number"
+                    value={statementYear}
+                    onChange={(e) => setStatementYear(Number(e.target.value))}
+                    style={{ width: 100 }}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="stmt-month">Month</label>
+                  <select
+                    id="stmt-month"
+                    value={statementMonth}
+                    onChange={(e) => setStatementMonth(Number(e.target.value))}
+                  >
+                    {STATEMENT_MONTHS.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+            <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+              {preparedStatement.exportOptions.periodLabel}
+              {" · "}
+              {preparedStatement.rows.length} line{preparedStatement.rows.length === 1 ? "" : "s"}
+              {preparedStatement.totals.openingBalance > 0
+                ? ` · opening balance ${formatMoney(preparedStatement.totals.openingBalance)}`
+                : ""}
+            </p>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-ghost" onClick={handlePrintReport}>
+                Print
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={handleDownloadPdf}>
+                Download PDF
+              </button>
+              <button type="button" className="btn btn-primary" onClick={handleDownloadWord}>
+                Download Word
+              </button>
+            </div>
+          </div>
+
           <div className="card" style={{ marginBottom: "1rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
               <h2 style={{ margin: 0, fontSize: "1.05rem" }}>Invoices</h2>
@@ -574,25 +674,6 @@ export default function CustomerDetail() {
                   Add payment
                 </button>
               </form>
-            </div>
-          </div>
-
-          <div className="card" style={{ marginBottom: "1rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-              <span style={{ fontSize: "0.95rem", color: "var(--muted)" }}>
-                Account statement — export with the same table layout (Dis, amounts, totals).
-              </span>
-              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                <button type="button" className="btn btn-ghost" onClick={handlePrintReport}>
-                  Print
-                </button>
-                <button type="button" className="btn btn-ghost" onClick={handleDownloadPdf}>
-                  Download PDF
-                </button>
-                <button type="button" className="btn btn-primary" onClick={handleDownloadWord}>
-                  Download Word
-                </button>
-              </div>
             </div>
           </div>
 
