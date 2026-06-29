@@ -168,6 +168,7 @@ export function buildYearlyReportHtml(data, company, { year, monthLabels }) {
     ["Payments recorded (later)", formatMoney(data.yearlyPaymentsRecorded ?? 0)],
     ["Credit given (new debt)", formatMoney(data.yearlyCreditTotal ?? 0)],
     ["Total money received", formatMoney(data.yearlyMoneyReceived ?? 0), true],
+    ["Outstanding balance (all customers, as of today)", formatMoney(data.totalOutstandingBalance ?? 0), true],
   ];
 
   const monthRows = (data.salesTrendsByMonth || [])

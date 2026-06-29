@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 import { useCompanyProfile } from "../companySettings.jsx";
 import { authApi, settingsApi, backupApi } from "../api.js";
 import { mergeCompanyProfile } from "../companyProfile.js";
-import { downloadBlob } from "../util.js";
 
 function formFromProfile(p) {
   const x = mergeCompanyProfile(p);
@@ -60,6 +59,9 @@ export default function Settings() {
   const [backupPending, setBackupPending] = useState(false);
   const [backupMsg, setBackupMsg] = useState("");
   const [backupErr, setBackupErr] = useState("");
+  const [odStatus, setOdStatus] = useState(null);
+  const [odPending, setOdPending] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     if (profileLoading || companyForm !== null) return;
@@ -82,7 +84,102 @@ export default function Settings() {
   useEffect(() => {
     if (!isAdmin) return;
     loadUsers();
+    loadOneDriveStatus();
   }, [isAdmin]);
+
+  useEffect(() => {
+    const od = searchParams.get("onedrive");
+    if (od === "connected") {
+      setBackupMsg("OneDrive connected successfully. Choose weekly or monthly schedule below.");
+      loadOneDriveStatus();
+      setSearchParams({}, { replace: true });
+    } else if (od === "error") {
+      setBackupErr(searchParams.get("msg") || "OneDrive connection failed");
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  async function loadOneDriveStatus() {
+    try {
+      const s = await backupApi.onedriveStatus();
+      setOdStatus(s);
+    } catch {
+      setOdStatus(null);
+    }
+  }
+
+  async function downloadBackupZip() {
+    setBackupErr("");
+    setBackupMsg("");
+    setBackupPending(true);
+    try {
+      await backupApi.downloadZip();
+      setBackupMsg("ZIP backup downloaded. Save it to OneDrive or USB.");
+    } catch (x) {
+      setBackupErr(x.message || "Backup failed");
+    } finally {
+      setBackupPending(false);
+    }
+  }
+
+  async function connectOneDrive() {
+    setBackupErr("");
+    setOdPending(true);
+    try {
+      const { url } = await backupApi.onedriveAuthUrl();
+      window.location.href = url;
+    } catch (x) {
+      setBackupErr(x.message || "Could not start OneDrive sign-in");
+      setOdPending(false);
+    }
+  }
+
+  async function disconnectOneDrive() {
+    if (!window.confirm("Disconnect OneDrive automatic backups?")) return;
+    setOdPending(true);
+    try {
+      await backupApi.onedriveDisconnect();
+      await loadOneDriveStatus();
+      setBackupMsg("OneDrive disconnected.");
+    } catch (x) {
+      setBackupErr(x.message);
+    } finally {
+      setOdPending(false);
+    }
+  }
+
+  async function changeBackupSchedule(schedule) {
+    setOdPending(true);
+    setBackupErr("");
+    try {
+      const s = await backupApi.onedriveSetSchedule(schedule);
+      setOdStatus((prev) => ({ ...prev, ...s }));
+      setBackupMsg(
+        schedule === "off"
+          ? "Automatic OneDrive backup turned off."
+          : `Automatic OneDrive backup set to ${schedule}.`
+      );
+    } catch (x) {
+      setBackupErr(x.message);
+    } finally {
+      setOdPending(false);
+    }
+  }
+
+  async function uploadOneDriveNow() {
+    setOdPending(true);
+    setBackupErr("");
+    try {
+      const r = await backupApi.onedriveUpload();
+      await loadOneDriveStatus();
+      setBackupMsg(`Uploaded ${r.filename} to OneDrive folder ${r.folder}.`);
+    } catch (x) {
+      setBackupErr(x.message || "Upload failed");
+      await loadOneDriveStatus();
+    } finally {
+      setOdPending(false);
+    }
+  }
 
   if (!isAdmin) return <Navigate to="/" replace />;
 
@@ -157,43 +254,6 @@ export default function Settings() {
       setErr(x.message || "Failed");
     } finally {
       setPending(false);
-    }
-  }
-
-  async function downloadBackup(kind) {
-    setBackupErr("");
-    setBackupMsg("");
-    setBackupPending(true);
-    try {
-      const data = await backupApi.exportAll();
-      const stamp = (data.meta?.exportedAt || new Date().toISOString()).slice(0, 10);
-      const counts = data.meta?.counts || {};
-
-      if (kind === "json" || kind === "all") {
-        const { csv: _csv, ...jsonBody } = data;
-        const text = JSON.stringify(jsonBody, null, 2);
-        downloadBlob(`samakaab-backup-${stamp}.json`, new Blob([text], { type: "application/json;charset=utf-8" }));
-      }
-
-      if (kind === "csv" || kind === "all") {
-        const bom = "\uFEFF";
-        for (const [name, text] of Object.entries(data.csv || {})) {
-          downloadBlob(`samakaab-${name}-${stamp}.csv`, new Blob([bom + text], { type: "text/csv;charset=utf-8" }));
-        }
-      }
-
-      const summary = `${counts.customers ?? 0} customers, ${counts.invoices ?? 0} invoices, ${counts.payments ?? 0} payments`;
-      setBackupMsg(
-        kind === "all"
-          ? `Downloaded full backup (JSON + CSV). ${summary}. Store files safely (USB, OneDrive, etc.).`
-          : kind === "json"
-            ? `Downloaded JSON backup. ${summary}.`
-            : `Downloaded CSV files. ${summary}.`
-      );
-    } catch (x) {
-      setBackupErr(x.message || "Backup failed");
-    } finally {
-      setBackupPending(false);
     }
   }
 
@@ -476,30 +536,96 @@ export default function Settings() {
       <div className="card" style={{ marginBottom: "1.25rem", maxWidth: 720 }}>
         <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Backup data</h2>
         <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0 }}>
-          Download a copy of all customers, invoices, credits, payments, and settings. Do this <strong>weekly</strong> (or daily)
-          and keep files in a safe place — Atlas free tier has no automatic backup.
+          One ZIP file with all customers, invoices, credits, payments, and settings (JSON + CSV for Excel). Atlas free tier has no automatic cloud backup — use download or OneDrive below.
         </p>
-        <ul style={{ margin: "0 0 1rem", paddingLeft: "1.25rem", color: "var(--muted)", fontSize: "0.9rem" }}>
-          <li>
-            <strong>Full backup (JSON)</strong> — complete copy for recovery (passwords not included; reset users after restore).
-          </li>
-          <li>
-            <strong>CSV files</strong> — open in Excel for records / accountant.
-          </li>
-        </ul>
         {backupErr && <p style={{ color: "var(--danger)" }}>{backupErr}</p>}
         {backupMsg && <p style={{ color: "var(--accent)" }}>{backupMsg}</p>}
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          <button type="button" className="btn btn-primary" disabled={backupPending} onClick={() => downloadBackup("all")}>
-            {backupPending ? "Preparing…" : "Download full backup"}
-          </button>
-          <button type="button" className="btn" disabled={backupPending} onClick={() => downloadBackup("json")}>
-            JSON only
-          </button>
-          <button type="button" className="btn btn-ghost" disabled={backupPending} onClick={() => downloadBackup("csv")}>
-            CSV only (Excel)
-          </button>
+        <button type="button" className="btn btn-primary" disabled={backupPending} onClick={downloadBackupZip}>
+          {backupPending ? "Preparing ZIP…" : "Download backup (ZIP)"}
+        </button>
+
+        <hr style={{ margin: "1.25rem 0", border: "none", borderTop: "1px solid var(--border)" }} />
+
+        <h3 style={{ margin: "0 0 0.5rem", fontSize: "1rem" }}>OneDrive automatic backup</h3>
+        <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0 }}>
+          Connect your Microsoft / OneDrive account (1TB plan is fine). ZIP backups upload to folder <strong>SamakaabBackups</strong> on a weekly or monthly schedule.
+        </p>
+
+        {!odStatus?.msConfigured && (
+          <p style={{ fontSize: "0.85rem", color: "var(--muted)", background: "var(--bg-soft)", padding: "0.75rem", borderRadius: "var(--radius)" }}>
+            <strong>One-time server setup (Render):</strong> Register an app at{" "}
+            <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer">
+              Azure App registrations
+            </a>
+            , then set <code>MS_CLIENT_ID</code>, <code>MS_CLIENT_SECRET</code>, <code>MS_REDIRECT_URI</code> (e.g.{" "}
+            <code>https://your-api.onrender.com/api/backup/onedrive/callback</code>), <code>FRONTEND_URL</code>, and <code>BACKUP_CRON_SECRET</code> on Render. Redirect URI must match exactly in Azure.
+          </p>
+        )}
+
+        {odStatus?.connected ? (
+          <div style={{ fontSize: "0.9rem", marginBottom: "0.75rem" }}>
+            <p style={{ margin: "0 0 0.35rem" }}>
+              <strong>Connected:</strong> {odStatus.accountEmail || "Microsoft account"}
+            </p>
+            {odStatus.lastBackupAt && (
+              <p style={{ margin: "0 0 0.35rem", color: "var(--muted)" }}>
+                Last upload: {new Date(odStatus.lastBackupAt).toLocaleString()}
+                {odStatus.lastBackupFile ? ` · ${odStatus.lastBackupFile}` : ""}
+              </p>
+            )}
+            {odStatus.lastBackupError && (
+              <p style={{ margin: 0, color: "var(--danger)" }}>Last error: {odStatus.lastBackupError}</p>
+            )}
+          </div>
+        ) : (
+          <p style={{ fontSize: "0.9rem", color: "var(--muted)" }}>Not connected to OneDrive yet.</p>
+        )}
+
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" }}>
+          {!odStatus?.connected ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={odPending || !odStatus?.msConfigured}
+              onClick={connectOneDrive}
+            >
+              Connect OneDrive
+            </button>
+          ) : (
+            <>
+              <button type="button" className="btn" disabled={odPending} onClick={uploadOneDriveNow}>
+                Upload ZIP now
+              </button>
+              <button type="button" className="btn btn-ghost" disabled={odPending} onClick={disconnectOneDrive}>
+                Disconnect
+              </button>
+            </>
+          )}
         </div>
+
+        {odStatus?.connected && (
+          <div style={{ maxWidth: 280 }}>
+            <label htmlFor="backup-schedule">Automatic schedule</label>
+            <select
+              id="backup-schedule"
+              value={odStatus.schedule || "off"}
+              disabled={odPending}
+              onChange={(e) => changeBackupSchedule(e.target.value)}
+            >
+              <option value="off">Off — manual only</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0 0" }}>
+              Weekly/monthly needs a free cron job (e.g. cron-job.org) calling your API — see hint after connect.
+            </p>
+            {odStatus.cronHint && (
+              <p style={{ fontSize: "0.75rem", color: "var(--muted)", margin: "0.5rem 0 0", wordBreak: "break-all" }}>
+                {odStatus.cronHint}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="card" style={{ marginBottom: "1.25rem", maxWidth: 640 }}>

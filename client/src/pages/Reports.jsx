@@ -251,8 +251,14 @@ export default function Reports() {
               </div>
 
               <div className="reportStatGrid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
-                <StatCard label="Cash at sale" value={formatMoney(yearly.yearlyTotalPaidAtSale ?? 0)} />
-                <StatCard label="Payments later" value={formatMoney(yearly.yearlyPaymentsRecorded ?? 0)} />
+                <StatCard label="Cash at sale" value={formatMoney(yearly.yearlyTotalPaidAtSale ?? 0)} hint="Paid when invoice was created" />
+                <StatCard label="Payments later" value={formatMoney(yearly.yearlyPaymentsRecorded ?? 0)} hint="Recorded on customer page" />
+                <StatCard
+                  tone="danger"
+                  label="Still owed (today)"
+                  value={formatMoney(yearly.totalOutstandingBalance ?? 0)}
+                  hint="All customers — current balance"
+                />
               </div>
 
               <h2 className="reportSectionTitle">Top customers who owe</h2>

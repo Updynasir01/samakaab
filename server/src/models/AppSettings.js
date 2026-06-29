@@ -32,6 +32,16 @@ const appSettingsSchema = new mongoose.Schema(
     logoDataUrl: { type: String, default: "" },
     bank: { type: bankSchema, default: () => ({}) },
     terms: { type: termsSchema, default: () => ({}) },
+    onedrive: {
+      refreshToken: { type: String, default: "" },
+      accountEmail: { type: String, default: "" },
+      connectedAt: { type: Date, default: null },
+      folderName: { type: String, default: "SamakaabBackups" },
+      schedule: { type: String, enum: ["off", "weekly", "monthly"], default: "off" },
+      lastBackupAt: { type: Date, default: null },
+      lastBackupFile: { type: String, default: "" },
+      lastBackupError: { type: String, default: "" },
+    },
   },
   { timestamps: true }
 );

@@ -35,6 +35,16 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener("samakaab:logout", onOut);
   }, []);
 
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && getToken()) {
+        refresh();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refresh]);
+
   const login = async (username, password) => {
     const data = await authApi.login({ username, password });
     setToken(data.token);

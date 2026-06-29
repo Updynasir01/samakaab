@@ -193,6 +193,7 @@ router.get(
       return { ...c, balance: b.balance, totalCredit: b.totalCredit, totalPayments: b.totalPayments };
     });
     const biggestDebtors = [...withBal].filter((c) => c.balance > 0).sort((a, b) => b.balance - a.balance).slice(0, 10);
+    const totalOutstandingBalance = withBal.filter((c) => c.balance > 0).reduce((s, c) => s + c.balance, 0);
 
     const yInv = invoiceAgg[0] || {};
     const yearlyTotalSales = yInv.totalSales || 0;
@@ -212,6 +213,7 @@ router.get(
       yearlyTotalPaidAtSale,
       yearlyPaymentsRecorded,
       yearlyMoneyReceived,
+      totalOutstandingBalance,
       /** @deprecated use yearlyPaymentsRecorded */
       yearlyIncome: yearlyPaymentsRecorded,
       biggestDebtors,

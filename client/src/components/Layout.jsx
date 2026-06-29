@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 import { useCompanyProfile } from "../companySettings.jsx";
+import { pingApiHealth } from "../api.js";
 
 const navStyle = ({ isActive }) => ({
   color: isActive ? "var(--text)" : "var(--muted)",
@@ -13,10 +14,39 @@ const navStyle = ({ isActive }) => ({
 export default function Layout() {
   const { user, logout, isAdmin } = useAuth();
   const { profile } = useCompanyProfile();
+  const [connMsg, setConnMsg] = useState("");
+  const hiddenAt = useRef(null);
 
   useEffect(() => {
     document.title = profile.systemTitle || "Samakaab";
   }, [profile.systemTitle]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const onVisibility = async () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt.current = Date.now();
+        return;
+      }
+      const awayMs = hiddenAt.current ? Date.now() - hiddenAt.current : 0;
+      if (awayMs < 45_000) return;
+      setConnMsg("Reconnecting to server…");
+      const ok = await pingApiHealth();
+      setConnMsg(ok ? "" : "Server is waking up — wait ~30 seconds, then click once (do not click many times).");
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+
+    const keepAlive = setInterval(() => {
+      if (document.visibilityState === "visible") pingApiHealth(15_000);
+    }, 4 * 60 * 1000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearInterval(keepAlive);
+    };
+  }, [user]);
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -76,6 +106,20 @@ export default function Layout() {
           </div>
         </div>
       </header>
+      {connMsg && (
+        <div
+          style={{
+            background: "#fff8e6",
+            borderBottom: "1px solid #f0d78c",
+            color: "#7a5d00",
+            textAlign: "center",
+            padding: "0.5rem 1rem",
+            fontSize: "0.9rem",
+          }}
+        >
+          {connMsg}
+        </div>
+      )}
       <main style={{ flex: 1, maxWidth: 1100, width: "100%", margin: "0 auto", padding: "1.25rem 1rem 2rem" }}>
         <Outlet />
       </main>

@@ -1,3 +1,5 @@
+import { downloadBlob } from "./util.js";
+
 const TOKEN_KEY = "samakaab_token";
 
 export function getToken() {
@@ -16,6 +18,34 @@ function normalizeBaseUrl(u) {
 }
 
 const API_BASE = normalizeBaseUrl(import.meta.env?.VITE_API_URL);
+const API_TIMEOUT_MS = 90_000;
+
+export function getApiBase() {
+  return API_BASE;
+}
+
+/** Quick health check (e.g. after tab was idle). */
+export async function pingApiHealth(timeoutMs = 25_000) {
+  const url = API_BASE ? `${API_BASE}/api/health` : `/api/health`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function sessionExpired() {
+  setToken(null);
+  window.dispatchEvent(new Event("samakaab:logout"));
+  if (!window.location.pathname.startsWith("/login")) {
+    window.location.assign("/login");
+  }
+}
 
 function parseApiError(text, res) {
   const trimmed = String(text || "").trim();
@@ -35,20 +65,29 @@ export async function api(path, options = {}) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const url = API_BASE ? `${API_BASE}/api${path}` : `/api${path}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
   let res;
   try {
-    res = await fetch(url, { ...options, headers });
-  } catch {
+    res = await fetch(url, { ...options, headers, signal: controller.signal });
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      throw new Error(
+        "Request timed out. The server may be waking up (wait 30–60 seconds) or your connection is slow — then try again once."
+      );
+    }
     const hint = API_BASE
       ? "Cannot connect to the API. If you see a CORS error in the browser console, set CORS_ORIGIN on Render to your site URL (e.g. https://app.samkab.com) and redeploy the backend."
       : "Network error — set VITE_API_URL to your backend URL and rebuild the frontend.";
     throw new Error(hint);
+  } finally {
+    clearTimeout(timer);
   }
 
   if (res.status === 401 && getToken()) {
-    setToken(null);
-    window.dispatchEvent(new Event("samakaab:logout"));
+    sessionExpired();
+    throw new Error("Session expired. Please sign in again.");
   }
   const text = await res.text();
   if (!res.ok) {
@@ -120,6 +159,35 @@ export const settingsApi = {
 
 export const backupApi = {
   exportAll: () => api("/backup"),
+  onedriveStatus: () => api("/backup/onedrive/status"),
+  onedriveAuthUrl: () => api("/backup/onedrive/auth-url"),
+  onedriveDisconnect: () => api("/backup/onedrive/disconnect", { method: "POST" }),
+  onedriveSetSchedule: (schedule) =>
+    api("/backup/onedrive/schedule", { method: "PATCH", body: JSON.stringify({ schedule }) }),
+  onedriveUpload: () => api("/backup/onedrive/upload", { method: "POST" }),
+  async downloadZip() {
+    const token = getToken();
+    const url = API_BASE ? `${API_BASE}/api/backup/zip` : `/api/backup/zip`;
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = res.statusText;
+      try {
+        const data = JSON.parse(text);
+        msg = data.message || msg;
+      } catch {
+        if (text) msg = text.slice(0, 200);
+      }
+      throw new Error(msg || "Download failed");
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const match = cd.match(/filename="([^"]+)"/);
+    const filename = match?.[1] || `samakaab-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+    downloadBlob(filename, blob);
+  },
 };
 
 export const invoicesApi = {
