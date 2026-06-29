@@ -11,6 +11,7 @@ import {
   printAccountReportFromHtml,
   prepareAccountStatement,
 } from "../accountReportExport.js";
+import { buildStatementWhatsAppMessage, openWhatsAppChat } from "../whatsappShare.js";
 
 const STATEMENT_MONTHS = Array.from({ length: 12 }, (_, i) => ({
   value: i + 1,
@@ -313,6 +314,20 @@ export default function CustomerDetail() {
     downloadAccountReportWord(customer, rows, totals, profile, exportOptions);
   }
 
+  function handleWhatsAppStatement() {
+    if (!customer) return;
+    const { totals, exportOptions } = preparedStatement;
+    const message = buildStatementWhatsAppMessage({
+      customerName: customer.fullName,
+      brandName: profile.brandName || profile.legalName,
+      periodLabel: exportOptions.periodLabel,
+      balance: totals.balance,
+      lineCount: preparedStatement.rows.length,
+      openingBalance: totals.openingBalance,
+    });
+    openWhatsAppChat(customer.phone, message);
+  }
+
   return (
     <div>
       <p style={{ marginTop: 0 }}>
@@ -369,7 +384,7 @@ export default function CustomerDetail() {
           <div className="card" style={{ marginBottom: "1rem" }}>
             <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Account statement</h2>
             <p style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: "var(--muted)" }}>
-              Choose what to include, then print or download (same table layout: Dis, amounts, totals).
+              Choose what to include, then print, download, or send a summary via WhatsApp (same table layout: Dis, amounts, totals).
             </p>
             <div className="grid grid-2" style={{ gap: "0.75rem", marginBottom: "0.75rem" }}>
               <div>
@@ -432,7 +447,7 @@ export default function CustomerDetail() {
                 ? ` · opening balance ${formatMoney(preparedStatement.totals.openingBalance)}`
                 : ""}
             </p>
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
               <button type="button" className="btn btn-ghost" onClick={handlePrintReport}>
                 Print
               </button>
@@ -442,7 +457,13 @@ export default function CustomerDetail() {
               <button type="button" className="btn btn-primary" onClick={handleDownloadWord}>
                 Download Word
               </button>
+              <button type="button" className="btn btn-ghost" onClick={handleWhatsAppStatement}>
+                Send via WhatsApp
+              </button>
             </div>
+            <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
+              WhatsApp opens a chat with a pre-filled summary. Download PDF first if you need to attach the full statement.
+            </p>
           </div>
 
           <div className="card" style={{ marginBottom: "1rem" }}>

@@ -5,6 +5,7 @@ import { useAuth } from "../auth.jsx";
 import { useCompanyProfile } from "../companySettings.jsx";
 import { formatMoney, enteredByLabel, invoiceLaterPayments, BALANCE_EPS } from "../util.js";
 import { buildInvoiceHtml, printInvoiceFromHtml } from "../invoiceExport.js";
+import { buildInvoiceWhatsAppMessage, openWhatsAppChat } from "../whatsappShare.js";
 
 export default function InvoiceDetail() {
   const { id } = useParams();
@@ -36,6 +37,26 @@ export default function InvoiceDetail() {
   function printDoc(kind) {
     const html = buildInvoiceHtml(inv, { kind, company: profile });
     printInvoiceFromHtml(html);
+  }
+
+  function sendInvoiceWhatsApp() {
+    if (!inv?.customer?.phone) {
+      window.alert("This invoice has no customer phone number.");
+      return;
+    }
+    const remaining = Number(inv.creditAmount || 0);
+    const message = buildInvoiceWhatsAppMessage({
+      customerName: inv.customer.fullName,
+      brandName: profile.brandName || profile.legalName,
+      invoiceNumber: inv.invoiceNumber,
+      date: inv.date,
+      total: inv.total,
+      paidAtSale: inv.paidAtSale,
+      remaining,
+      paymentStatus: inv.paymentStatus,
+      orderNumber: inv.orderNumber || inv.orderNo,
+    });
+    openWhatsAppChat(inv.customer.phone, message);
   }
 
   async function toggleDelivered(lineItemId, delivered) {
@@ -134,9 +155,9 @@ export default function InvoiceDetail() {
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>
-        <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Print</h2>
+        <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Print &amp; share</h2>
         <p style={{ margin: "0.25rem 0 0.75rem", color: "var(--muted)", fontSize: "0.9rem", maxWidth: 720 }}>
-          Invoice shows prices and totals. Delivery note hides prices and totals (quantities only).
+          Invoice shows prices and totals. Delivery note hides prices and totals (quantities only). WhatsApp sends a short summary — print or save as PDF to attach the full document.
         </p>
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           <button type="button" className="btn btn-primary" onClick={() => printDoc("invoice")}>
@@ -145,6 +166,11 @@ export default function InvoiceDetail() {
           <button type="button" className="btn" onClick={() => printDoc("delivery")}>
             Print delivery note
           </button>
+          {inv.customer?.phone && (
+            <button type="button" className="btn btn-ghost" onClick={sendInvoiceWhatsApp}>
+              Send via WhatsApp
+            </button>
+          )}
         </div>
       </div>
 
