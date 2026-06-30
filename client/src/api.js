@@ -198,6 +198,7 @@ export const invoicesApi = {
     if (params.q) q.set("q", params.q);
     if (params.status && params.status !== "all") q.set("status", params.status);
     if (params.date) q.set("date", params.date);
+    if (params.year != null && params.year !== "") q.set("year", String(params.year));
     const qs = q.toString();
     return api(`/invoices${qs ? `?${qs}` : ""}`);
   },

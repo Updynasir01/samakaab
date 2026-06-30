@@ -5,6 +5,14 @@ import { formatMoney, enteredByLabel, invoiceLaterPayments, BALANCE_EPS } from "
 
 const PAGE_SIZE = 50;
 
+function yearFilterOptions() {
+  const end = new Date().getFullYear() + 1;
+  const start = end - 8;
+  const years = [];
+  for (let y = end; y >= start; y--) years.push(y);
+  return years;
+}
+
 function statusLabel(s) {
   if (s === "paid") return <span className="badge badge-ok">Paid</span>;
   if (s === "partial") return <span className="badge" style={{ background: "#fff3e0", color: "#b45309" }}>Partial</span>;
@@ -140,14 +148,14 @@ export default function Invoices() {
           </div>
           <div style={{ flex: "0 1 120px", minWidth: 100 }}>
             <label htmlFor="inv-year">Year</label>
-            <input
-              id="inv-year"
-              type="number"
-              placeholder="All"
-              value={yearFilter}
-              onChange={onFilterChange(setYearFilter)}
-              style={{ width: "100%" }}
-            />
+            <select id="inv-year" value={yearFilter} onChange={onFilterChange(setYearFilter)}>
+              <option value="">All years</option>
+              {yearFilterOptions().map((y) => (
+                <option key={y} value={String(y)}>
+                  {y}
+                </option>
+              ))}
+            </select>
           </div>
           <div style={{ flex: "0 1 160px", minWidth: 150 }}>
             <label htmlFor="inv-date">Invoice date</label>
