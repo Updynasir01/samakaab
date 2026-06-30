@@ -15,6 +15,10 @@ const MONTHS = Array.from({ length: 12 }, (_, i) => ({
   label: new Date(2000, i, 1).toLocaleString("default", { month: "long" }),
 }));
 
+function netOwedInPeriod(creditGiven, moneyReceived) {
+  return (Number(creditGiven) || 0) - (Number(moneyReceived) || 0);
+}
+
 function StatCard({ label, value, hint, tone = "default" }) {
   return (
     <div className={`reportStat ${tone !== "default" ? tone : ""}`}>
@@ -181,6 +185,12 @@ export default function Reports() {
                   value={formatMoney(monthly.totalCreditGiven ?? 0)}
                   hint="New debt added this month"
                 />
+                <StatCard
+                  tone="danger"
+                  label="Net owed (this month)"
+                  value={formatMoney(monthly.netOwedInPeriod ?? netOwedInPeriod(monthly.totalCreditGiven, monthly.totalMoneyReceived))}
+                  hint="Credit given − Money received"
+                />
               </div>
 
               <div className="reportStatGrid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
@@ -190,7 +200,7 @@ export default function Reports() {
                   tone="danger"
                   label="Still owed (today)"
                   value={formatMoney(monthly.totalOutstandingBalance ?? 0)}
-                  hint="All customers — current balance"
+                  hint="All customers — total balance now (includes debt from before this month)"
                 />
               </div>
 
@@ -236,7 +246,15 @@ export default function Reports() {
                 <strong style={{ color: "var(--text)" }}>{yearly.year}</strong>
                 {" · "}
                 {yearly.transactionCounts?.invoices ?? 0} invoice
-                {(yearly.transactionCounts?.invoices ?? 0) === 1 ? "" : "s"} this year
+                {(yearly.transactionCounts?.invoices ?? 0) === 1 ? "" : "s"} in {yearly.year}
+                {(yearly.invoicesAllTime ?? 0) > (yearly.transactionCounts?.invoices ?? 0) ? (
+                  <>
+                    {" "}
+                    <span title="Invoices list with no year filter shows all years">
+                      ({yearly.invoicesAllTime} total in system — {yearly.invoicesOutsideYear ?? 0} from other years)
+                    </span>
+                  </>
+                ) : null}
               </p>
 
               <div className="reportStatGrid">
@@ -248,6 +266,12 @@ export default function Reports() {
                 />
                 <StatCard label="Total sales" value={formatMoney(yearly.yearlyTotalSales ?? 0)} hint="All invoice totals" />
                 <StatCard label="Credit given" value={formatMoney(yearly.yearlyCreditTotal ?? 0)} hint="New debt added this year" />
+                <StatCard
+                  tone="danger"
+                  label="Net owed (this year)"
+                  value={formatMoney(yearly.yearlyNetOwedInPeriod ?? netOwedInPeriod(yearly.yearlyCreditTotal, yearly.yearlyMoneyReceived))}
+                  hint="Credit given − Money received"
+                />
               </div>
 
               <div className="reportStatGrid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
@@ -257,7 +281,7 @@ export default function Reports() {
                   tone="danger"
                   label="Still owed (today)"
                   value={formatMoney(yearly.totalOutstandingBalance ?? 0)}
-                  hint="All customers — current balance"
+                  hint="All customers — total balance now (includes debt from before this year)"
                 />
               </div>
 

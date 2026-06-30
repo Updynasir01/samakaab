@@ -8,6 +8,7 @@ import Customer from "../models/Customer.js";
 import { authRequired, adminOnly, actorUsername } from "../middleware/auth.js";
 import { excludedPaymentNoteFilter, BALANCE_EPS } from "../services/balance.js";
 import { syncCustomersWithOpenDebt, syncCustomerInvoices } from "../services/invoiceSync.js";
+import { matchCalendarYear } from "../services/reportDates.js";
 
 const router = Router();
 router.use(authRequired);
@@ -75,6 +76,7 @@ router.get(
   query("q").optional().trim(),
   query("status").optional().isIn(["all", "paid", "partial", "unpaid"]),
   query("date").optional().isISO8601(),
+  query("year").optional().isInt({ min: 2000, max: 2100 }),
   async (req, res) => {
     await syncCustomersWithOpenDebt();
     const limit = Number(req.query.limit) || 50;
@@ -99,41 +101,46 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function buildInvoiceListFilter({ q, status, date } = {}) {
-  const filter = {};
-  if (status && status !== "all") filter.paymentStatus = status;
+async function buildInvoiceListFilter({ q, status, date, year } = {}) {
+  const clauses = [];
+  if (status && status !== "all") clauses.push({ paymentStatus: status });
   if (date) {
     const start = new Date(date);
     if (!Number.isNaN(start.getTime())) {
       const end = new Date(start);
       start.setHours(0, 0, 0, 0);
       end.setHours(23, 59, 59, 999);
-      filter.date = { $gte: start, $lte: end };
+      clauses.push({ date: { $gte: start, $lte: end } });
     }
   }
+  if (year) {
+    clauses.push(matchCalendarYear("$date", Number(year)));
+  }
   const needle = String(q || "").trim();
-  if (!needle) return filter;
-
-  const rx = new RegExp(escapeRegex(needle), "i");
-  const or = [
-    { orderNumber: rx },
-    { note: rx },
-    { createdBy: rx },
-    { "lineItems.description": rx },
-  ];
-  if (/^\d+$/.test(needle)) {
-    or.push({ invoiceNumber: Number(needle) });
+  if (needle) {
+    const rx = new RegExp(escapeRegex(needle), "i");
+    const or = [
+      { orderNumber: rx },
+      { note: rx },
+      { createdBy: rx },
+      { "lineItems.description": rx },
+    ];
+    if (/^\d+$/.test(needle)) {
+      or.push({ invoiceNumber: Number(needle) });
+    }
+    const customers = await Customer.find({
+      $or: [{ fullName: rx }, { phone: rx }],
+    })
+      .select("_id")
+      .lean();
+    if (customers.length) {
+      or.push({ customer: { $in: customers.map((c) => c._id) } });
+    }
+    clauses.push({ $or: or });
   }
-  const customers = await Customer.find({
-    $or: [{ fullName: rx }, { phone: rx }],
-  })
-    .select("_id")
-    .lean();
-  if (customers.length) {
-    or.push({ customer: { $in: customers.map((c) => c._id) } });
-  }
-  filter.$or = or;
-  return filter;
+  if (clauses.length === 0) return {};
+  if (clauses.length === 1) return clauses[0];
+  return { $and: clauses };
 }
 
 router.get("/customer/:customerId", async (req, res) => {

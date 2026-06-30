@@ -8,20 +8,21 @@ import { authRequired } from "../middleware/auth.js";
 import { getBalancesForCustomers } from "../services/balance.js";
 import { computeMoneyReceived } from "../services/moneyTotals.js";
 import { excludedPaymentNoteFilter } from "../services/balance.js";
+import {
+  calendarMonthGroup,
+  matchCalendarYear,
+  matchCalendarYearMonth,
+} from "../services/reportDates.js";
 
 const router = Router();
 router.use(authRequired);
 
-function monthRange(year, month1to12) {
-  const start = new Date(year, month1to12 - 1, 1);
-  const end = new Date(year, month1to12, 0, 23, 59, 59, 999);
-  return { start, end };
+function payMatchYearMonth(year, month) {
+  return { $and: [excludedPaymentNoteFilter(), matchCalendarYearMonth("$paidAt", year, month)] };
 }
 
-function yearRange(year) {
-  const start = new Date(year, 0, 1);
-  const end = new Date(year, 11, 31, 23, 59, 59, 999);
-  return { start, end };
+function payMatchYear(year) {
+  return { $and: [excludedPaymentNoteFilter(), matchCalendarYear("$paidAt", year)] };
 }
 
 router.get(
@@ -35,20 +36,19 @@ router.get(
     }
     const year = Number(req.query.year);
     const month = Number(req.query.month);
-    const { start, end } = monthRange(year, month);
 
     const [creditAgg, payAgg, invoiceAgg, invoiceCount, creditEntryCount, paymentEntryCount] =
       await Promise.all([
         CreditEntry.aggregate([
-          { $match: { dateOfCredit: { $gte: start, $lte: end } } },
+          { $match: matchCalendarYearMonth("$dateOfCredit", year, month) },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         PaymentEntry.aggregate([
-          { $match: { paidAt: { $gte: start, $lte: end }, ...excludedPaymentNoteFilter() } },
+          { $match: payMatchYearMonth(year, month) },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         Invoice.aggregate([
-          { $match: { date: { $gte: start, $lte: end } } },
+          { $match: matchCalendarYearMonth("$date", year, month) },
           {
             $group: {
               _id: null,
@@ -57,9 +57,9 @@ router.get(
             },
           },
         ]),
-        Invoice.countDocuments({ date: { $gte: start, $lte: end } }),
-        CreditEntry.countDocuments({ dateOfCredit: { $gte: start, $lte: end } }),
-        PaymentEntry.countDocuments({ paidAt: { $gte: start, $lte: end } }),
+        Invoice.countDocuments(matchCalendarYearMonth("$date", year, month)),
+        CreditEntry.countDocuments(matchCalendarYearMonth("$dateOfCredit", year, month)),
+        PaymentEntry.countDocuments(payMatchYearMonth(year, month)),
       ]);
 
     const totalCreditGiven = creditAgg[0]?.total || 0;
@@ -67,8 +67,8 @@ router.get(
     const inv = invoiceAgg[0] || {};
     const totalSales = inv.totalSales || 0;
     const totalPaidAtSale = inv.totalPaidAtSale || 0;
-    /** All cash in for the period: till (invoice) + effective recorded payments — same idea as dashboard. */
     const totalMoneyReceived = computeMoneyReceived(totalPaidAtSale, totalPaymentsRecorded);
+    const netOwedInPeriod = totalCreditGiven - totalMoneyReceived;
 
     const customers = await Customer.find().lean();
     const ids = customers.map((c) => c._id);
@@ -90,7 +90,6 @@ router.get(
 
     res.json({
       period: { year, month, label: `${year}-${String(month).padStart(2, "0")}` },
-      /** How many rows of each kind fall in this month (sums above are from these same filters). */
       transactionCounts: {
         invoices: invoiceCount,
         creditEntries: creditEntryCount,
@@ -101,6 +100,7 @@ router.get(
       totalPaidAtSale,
       totalPaymentsRecorded,
       totalMoneyReceived,
+      netOwedInPeriod,
       /** @deprecated use totalPaymentsRecorded — was payments only */
       totalCashReceived: totalPaymentsRecorded,
       totalOutstandingBalance: outstandingTotal,
@@ -118,7 +118,6 @@ router.get(
       return res.status(400).json({ errors: errors.array() });
     }
     const year = Number(req.query.year);
-    const { start, end } = yearRange(year);
 
     const [
       creditAgg,
@@ -130,17 +129,18 @@ router.get(
       yearlyInvoiceCount,
       yearlyCreditEntryCount,
       yearlyPaymentEntryCount,
+      invoicesAllTime,
     ] = await Promise.all([
       CreditEntry.aggregate([
-        { $match: { dateOfCredit: { $gte: start, $lte: end } } },
+        { $match: matchCalendarYear("$dateOfCredit", year) },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
       PaymentEntry.aggregate([
-        { $match: { paidAt: { $gte: start, $lte: end }, ...excludedPaymentNoteFilter() } },
+        { $match: payMatchYear(year) },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
       Invoice.aggregate([
-        { $match: { date: { $gte: start, $lte: end } } },
+        { $match: matchCalendarYear("$date", year) },
         {
           $group: {
             _id: null,
@@ -150,39 +150,40 @@ router.get(
         },
       ]),
       CreditEntry.aggregate([
-        { $match: { dateOfCredit: { $gte: start, $lte: end } } },
+        { $match: matchCalendarYear("$dateOfCredit", year) },
         {
           $group: {
-            _id: { $month: "$dateOfCredit" },
+            _id: calendarMonthGroup("$dateOfCredit"),
             total: { $sum: "$amount" },
           },
         },
         { $sort: { _id: 1 } },
       ]),
       PaymentEntry.aggregate([
-        { $match: { paidAt: { $gte: start, $lte: end }, ...excludedPaymentNoteFilter() } },
+        { $match: payMatchYear(year) },
         {
           $group: {
-            _id: { $month: "$paidAt" },
+            _id: calendarMonthGroup("$paidAt"),
             total: { $sum: "$amount" },
           },
         },
         { $sort: { _id: 1 } },
       ]),
       Invoice.aggregate([
-        { $match: { date: { $gte: start, $lte: end } } },
+        { $match: matchCalendarYear("$date", year) },
         {
           $group: {
-            _id: { $month: "$date" },
+            _id: calendarMonthGroup("$date"),
             totalSales: { $sum: "$total" },
             paidAtSale: { $sum: "$paidAtSale" },
           },
         },
         { $sort: { _id: 1 } },
       ]),
-      Invoice.countDocuments({ date: { $gte: start, $lte: end } }),
-      CreditEntry.countDocuments({ dateOfCredit: { $gte: start, $lte: end } }),
-      PaymentEntry.countDocuments({ paidAt: { $gte: start, $lte: end } }),
+      Invoice.countDocuments(matchCalendarYear("$date", year)),
+      CreditEntry.countDocuments(matchCalendarYear("$dateOfCredit", year)),
+      PaymentEntry.countDocuments(payMatchYear(year)),
+      Invoice.countDocuments({}),
     ]);
 
     const customers = await Customer.find().lean();
@@ -200,6 +201,7 @@ router.get(
     const yearlyTotalPaidAtSale = yInv.totalPaidAtSale || 0;
     const yearlyPaymentsRecorded = payAgg[0]?.total || 0;
     const yearlyMoneyReceived = computeMoneyReceived(yearlyTotalPaidAtSale, yearlyPaymentsRecorded);
+    const yearlyNetOwedInPeriod = (creditAgg[0]?.total || 0) - yearlyMoneyReceived;
 
     res.json({
       year,
@@ -208,11 +210,14 @@ router.get(
         creditEntries: yearlyCreditEntryCount,
         paymentEntries: yearlyPaymentEntryCount,
       },
+      invoicesAllTime,
+      invoicesOutsideYear: Math.max(0, invoicesAllTime - yearlyInvoiceCount),
       yearlyCreditTotal: creditAgg[0]?.total || 0,
       yearlyTotalSales,
       yearlyTotalPaidAtSale,
       yearlyPaymentsRecorded,
       yearlyMoneyReceived,
+      yearlyNetOwedInPeriod,
       totalOutstandingBalance,
       /** @deprecated use yearlyPaymentsRecorded */
       yearlyIncome: yearlyPaymentsRecorded,

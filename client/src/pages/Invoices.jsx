@@ -37,6 +37,7 @@ export default function Invoices() {
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageList = useMemo(() => buildPageList(page, totalPages), [page, totalPages]);
@@ -50,6 +51,7 @@ export default function Invoices() {
       ...(q.trim() ? { q: q.trim() } : {}),
       ...(statusFilter !== "all" ? { status: statusFilter } : {}),
       ...(dateFilter ? { date: dateFilter } : {}),
+      ...(yearFilter ? { year: Number(yearFilter) } : {}),
     };
     const data = await invoicesApi.list(params);
     const items = data?.items ?? (Array.isArray(data) ? data : []);
@@ -58,7 +60,7 @@ export default function Invoices() {
     setList(items);
     const maxPage = Math.max(1, Math.ceil(count / PAGE_SIZE));
     if (page > maxPage) setPage(maxPage);
-  }, [page, q, statusFilter, dateFilter]);
+  }, [page, q, statusFilter, dateFilter, yearFilter]);
 
   useEffect(() => {
     setLoading(true);
@@ -96,6 +98,7 @@ export default function Invoices() {
     setQ("");
     setStatusFilter("all");
     setDateFilter("");
+    setYearFilter("");
     setPage(1);
   }
 
@@ -135,6 +138,17 @@ export default function Invoices() {
               placeholder="Customer, invoice #, order, note…"
             />
           </div>
+          <div style={{ flex: "0 1 120px", minWidth: 100 }}>
+            <label htmlFor="inv-year">Year</label>
+            <input
+              id="inv-year"
+              type="number"
+              placeholder="All"
+              value={yearFilter}
+              onChange={onFilterChange(setYearFilter)}
+              style={{ width: "100%" }}
+            />
+          </div>
           <div style={{ flex: "0 1 160px", minWidth: 150 }}>
             <label htmlFor="inv-date">Invoice date</label>
             <input id="inv-date" type="date" value={dateFilter} onChange={onFilterChange(setDateFilter)} />
@@ -148,7 +162,7 @@ export default function Invoices() {
               <option value="unpaid">Unpaid</option>
             </select>
           </div>
-          {(searchInput.trim() || statusFilter !== "all" || dateFilter) && (
+          {(searchInput.trim() || statusFilter !== "all" || dateFilter || yearFilter) && (
             <button type="button" className="btn btn-ghost" style={{ marginBottom: 2 }} onClick={clearFilters}>
               Clear
             </button>
@@ -157,6 +171,8 @@ export default function Invoices() {
         {!loading && total > 0 && (
           <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem", color: "var(--muted)" }}>
             Showing {rangeStart}–{rangeEnd} of {total} invoice{total === 1 ? "" : "s"}
+            {!yearFilter && !dateFilter ? " (all years)" : ""}
+            {yearFilter ? ` in ${yearFilter}` : ""}
             {q.trim() ? ` matching “${q.trim()}”` : ""}
             {totalPages > 1 ? ` · Page ${page} of ${totalPages}` : ""}
           </p>
