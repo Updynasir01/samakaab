@@ -43,8 +43,11 @@ export function filterAccountStatementRows(rows, invoices, { year, month, invoic
       if (row.dis === "Credit") return invoiceStatus === "unpaid";
       return false;
     }
-    const paid = inv.paymentStatus === "paid";
-    return invoiceStatus === "paid" ? paid : !paid;
+    const status = inv.paymentStatus;
+    if (invoiceStatus === "paid") return status === "paid";
+    if (invoiceStatus === "partial") return status === "partial";
+    if (invoiceStatus === "unpaid") return status === "unpaid";
+    return true;
   }
 
   return (rows || []).filter((r) => inMonth(r) && matchesStatus(r));
@@ -68,6 +71,7 @@ export function buildStatementPeriodLabel({ year, month, invoiceStatus = "all" }
     parts.push(new Date(year, month - 1, 1).toLocaleString("default", { month: "long", year: "numeric" }));
   }
   if (invoiceStatus === "paid") parts.push("paid invoices only");
+  if (invoiceStatus === "partial") parts.push("partial invoices only");
   if (invoiceStatus === "unpaid") parts.push("unpaid invoices only");
   return parts.length ? parts.join(" — ") : "All activity";
 }

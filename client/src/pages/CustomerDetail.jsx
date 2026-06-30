@@ -7,7 +7,6 @@ import { formatMoney, invoiceMatchesFilter, enteredByLabel, toInputDate, todayIS
 import {
   buildAccountReportHtml,
   downloadAccountReportPdf,
-  downloadAccountReportWord,
   printAccountReportFromHtml,
   prepareAccountStatement,
 } from "../accountReportExport.js";
@@ -308,12 +307,6 @@ export default function CustomerDetail() {
     downloadAccountReportPdf(customer, rows, totals, profile, exportOptions);
   }
 
-  function handleDownloadWord() {
-    if (!customer) return;
-    const { rows, totals, exportOptions } = preparedStatement;
-    downloadAccountReportWord(customer, rows, totals, profile, exportOptions);
-  }
-
   function handleWhatsAppStatement() {
     if (!customer) return;
     const { totals, exportOptions } = preparedStatement;
@@ -407,6 +400,7 @@ export default function CustomerDetail() {
                 >
                   <option value="all">All invoices &amp; payments</option>
                   <option value="paid">Paid invoices only</option>
+                  <option value="partial">Partial invoices only</option>
                   <option value="unpaid">Unpaid invoices only</option>
                 </select>
               </div>
@@ -451,11 +445,8 @@ export default function CustomerDetail() {
               <button type="button" className="btn btn-ghost" onClick={handlePrintReport}>
                 Print
               </button>
-              <button type="button" className="btn btn-ghost" onClick={handleDownloadPdf}>
+              <button type="button" className="btn btn-primary" onClick={handleDownloadPdf}>
                 Download PDF
-              </button>
-              <button type="button" className="btn btn-primary" onClick={handleDownloadWord}>
-                Download Word
               </button>
               <button type="button" className="btn btn-ghost" onClick={handleWhatsAppStatement}>
                 Send via WhatsApp
