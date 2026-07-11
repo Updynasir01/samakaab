@@ -10,7 +10,11 @@ import {
   printAccountReportFromHtml,
   prepareAccountStatement,
 } from "../accountReportExport.js";
-import { buildStatementWhatsAppMessage, openWhatsAppChat } from "../whatsappShare.js";
+import {
+  buildStatementWhatsAppCaption,
+  shareHtmlPdfViaWhatsApp,
+  statementPdfFilename,
+} from "../whatsappShare.js";
 
 const STATEMENT_MONTHS = Array.from({ length: 12 }, (_, i) => ({
   value: i + 1,
@@ -48,6 +52,7 @@ export default function CustomerDetail() {
   const [statementYear, setStatementYear] = useState(now.getFullYear());
   const [statementMonth, setStatementMonth] = useState(now.getMonth() + 1);
   const [statementInvoiceFilter, setStatementInvoiceFilter] = useState("all");
+  const [whatsAppBusy, setWhatsAppBusy] = useState(false);
 
   useEffect(() => {
     if (isNew) return;
@@ -307,18 +312,29 @@ export default function CustomerDetail() {
     downloadAccountReportPdf(customer, rows, totals, profile, exportOptions);
   }
 
-  function handleWhatsAppStatement() {
-    if (!customer) return;
-    const { totals, exportOptions } = preparedStatement;
-    const message = buildStatementWhatsAppMessage({
-      customerName: customer.fullName,
-      brandName: profile.brandName || profile.legalName,
-      periodLabel: exportOptions.periodLabel,
-      balance: totals.balance,
-      lineCount: preparedStatement.rows.length,
-      openingBalance: totals.openingBalance,
-    });
-    openWhatsAppChat(customer.phone, message);
+  async function handleWhatsAppStatement(mode = "app") {
+    if (!customer || whatsAppBusy) return;
+    setWhatsAppBusy(true);
+    setErr("");
+    try {
+      const { rows, totals, exportOptions } = preparedStatement;
+      const html = buildAccountReportHtml(customer, rows, totals, profile, exportOptions);
+      await shareHtmlPdfViaWhatsApp({
+        phone: customer.phone,
+        html,
+        filename: statementPdfFilename(customer, exportOptions.filters),
+        caption: buildStatementWhatsAppCaption({
+          customerName: customer.fullName,
+          brandName: profile.brandName || profile.legalName,
+          periodLabel: exportOptions.periodLabel,
+        }),
+        mode,
+      });
+    } catch (e) {
+      setErr(e.message || "Could not create PDF for WhatsApp.");
+    } finally {
+      setWhatsAppBusy(false);
+    }
   }
 
   return (
@@ -377,7 +393,7 @@ export default function CustomerDetail() {
           <div className="card" style={{ marginBottom: "1rem" }}>
             <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Account statement</h2>
             <p style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: "var(--muted)" }}>
-              Choose what to include, then print, download, or send a summary via WhatsApp (same table layout: Dis, amounts, totals).
+              Choose what to include, then print, download, or send the PDF via WhatsApp (same layout as Print).
             </p>
             <div className="grid grid-2" style={{ gap: "0.75rem", marginBottom: "0.75rem" }}>
               <div>
@@ -448,12 +464,26 @@ export default function CustomerDetail() {
               <button type="button" className="btn btn-primary" onClick={handleDownloadPdf}>
                 Download PDF
               </button>
-              <button type="button" className="btn btn-ghost" onClick={handleWhatsAppStatement}>
-                Send via WhatsApp
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={whatsAppBusy}
+                onClick={() => handleWhatsAppStatement("app")}
+              >
+                {whatsAppBusy ? "Preparing PDF…" : "WhatsApp app"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={whatsAppBusy}
+                onClick={() => handleWhatsAppStatement("web")}
+              >
+                {whatsAppBusy ? "Preparing PDF…" : "WhatsApp Web"}
               </button>
             </div>
             <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
-              WhatsApp opens a chat with a pre-filled summary. Download PDF first if you need to attach the full statement.
+              <strong>WhatsApp app</strong> — share sheet can attach the PDF automatically.{" "}
+              <strong>WhatsApp Web</strong> — PDF downloads; attach it with the paperclip before sending.
             </p>
           </div>
 
