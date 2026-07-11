@@ -214,3 +214,15 @@ export const invoicesApi = {
     api(`/invoices/${id}/delivery`, { method: "PATCH", body: JSON.stringify({ all: true, delivered }) }),
   remove: (id) => api(`/invoices/${id}`, { method: "DELETE" }),
 };
+
+export const inventoryApi = {
+  list: (q = "") => api(`/inventory/products${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  create: (body) => api("/inventory/products", { method: "POST", body: JSON.stringify(body) }),
+  update: (id, body) => api(`/inventory/products/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  remove: (id) => api(`/inventory/products/${id}`, { method: "DELETE" }),
+  stockIn: (id, body) => api(`/inventory/products/${id}/stock-in`, { method: "POST", body: JSON.stringify(body) }),
+  sold: (id, body) => api(`/inventory/products/${id}/sold`, { method: "POST", body: JSON.stringify(body) }),
+  adjust: (id, body) => api(`/inventory/products/${id}/adjust`, { method: "POST", body: JSON.stringify(body) }),
+  batches: (id) => api(`/inventory/products/${id}/batches`),
+  movements: (id, limit = 40) => api(`/inventory/products/${id}/movements?limit=${limit}`),
+};

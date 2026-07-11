@@ -18,6 +18,8 @@ const invoiceSchema = new mongoose.Schema(
     invoiceNumber: { type: Number, required: true, unique: true },
     orderNumber: { type: String, trim: true, default: "" },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null },
+    /** Name printed on walk-in cash receipts (no customer profile). */
+    receiptTakerName: { type: String, trim: true, default: "" },
     lineItems: [lineItemSchema],
     total: { type: Number, required: true, min: 0 },
     paidAtSale: { type: Number, default: 0, min: 0 },

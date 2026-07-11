@@ -13,6 +13,7 @@ import dashboardRoutes from "./routes/dashboard.js";
 import invoiceRoutes from "./routes/invoices.js";
 import settingsRoutes from "./routes/settings.js";
 import backupRoutes from "./routes/backup.js";
+import inventoryRoutes from "./routes/inventory.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -64,6 +65,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/backup", backupRoutes);
+app.use("/api/inventory", inventoryRoutes);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, name: "Samakaab Supermarket API" });

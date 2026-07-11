@@ -58,9 +58,10 @@ export default function InvoiceDetail() {
         html,
         filename: invoicePdfFilename(inv),
         caption: buildInvoiceWhatsAppCaption({
-          customerName: inv.customer.fullName,
+          customerName: inv.customer?.fullName || "Walk-in",
           brandName: profile.brandName || profile.legalName,
           invoiceNumber: inv.invoiceNumber,
+          isWalkIn: !inv.customer,
         }),
         mode,
       });
@@ -156,7 +157,14 @@ export default function InvoiceDetail() {
           </p>
         ) : (
           <p style={{ margin: 0, color: "var(--muted)" }}>
-            Walk-in sale (paid in full at checkout — no customer balance).
+            Walk-in cash receipt
+            {inv.receiptTakerName ? (
+              <>
+                {" "}
+                for <strong style={{ color: "var(--text)" }}>{inv.receiptTakerName}</strong>
+              </>
+            ) : null}{" "}
+            (paid in full at checkout — no customer balance).
           </p>
         )}
         {inv.note && (

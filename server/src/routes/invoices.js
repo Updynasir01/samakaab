@@ -296,6 +296,7 @@ router.post(
   body("paidAtSale").optional().isFloat({ min: 0 }),
   body("expectedPayDate").optional().isISO8601(),
   body("note").optional().trim(),
+  body("receiptTakerName").optional().trim(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -310,6 +311,7 @@ router.post(
     const date = new Date(req.body.date);
     const note = req.body.note || "";
     const orderNumber = String(req.body.orderNumber || "").trim();
+    const receiptTakerName = customerId ? "" : String(req.body.receiptTakerName || "").trim();
 
     const lineItems = buildLineItemsFromBody(req.body.lineItems);
 
@@ -364,6 +366,7 @@ router.post(
         invoiceNumber,
         orderNumber,
         customer: customerId,
+        receiptTakerName,
         lineItems,
         total,
         paidAtSale,
@@ -470,16 +473,8 @@ router.patch(
   body("paidAtSale").optional().isFloat({ min: 0 }),
   body("expectedPayDate").optional().isISO8601(),
   body("note").optional().trim(),
+  body("receiptTakerName").optional().trim(),
   async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ message: "Invalid input", errors: errors.array() });
-    }
-    if (!mongoose.isValidObjectId(req.params.id)) {
-      return res.status(400).json({ message: "Invalid id" });
-    }
-
-    const inv = await Invoice.findById(req.params.id);
     if (!inv) return res.status(404).json({ message: "Invoice not found" });
 
     const oldCustomerId = inv.customer ? String(inv.customer) : null;
@@ -500,6 +495,9 @@ router.patch(
     const note = req.body.note ?? inv.note ?? "";
     const orderNumber = String(req.body.orderNumber ?? inv.orderNumber ?? "").trim();
     const lineItems = buildLineItemsFromBody(req.body.lineItems, synced);
+    const receiptTakerName = customerId
+      ? ""
+      : String(req.body.receiptTakerName ?? inv.receiptTakerName ?? "").trim();
 
     const total = round2(lineItems.reduce((s, l) => s + l.lineTotal, 0));
     if (total <= 0) {
@@ -551,6 +549,7 @@ router.patch(
     }
 
     inv.customer = customerId;
+    inv.receiptTakerName = receiptTakerName;
     inv.lineItems = lineItems;
     inv.total = total;
     inv.paidAtSale = paidAtSale;

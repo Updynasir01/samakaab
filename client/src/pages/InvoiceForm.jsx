@@ -30,6 +30,7 @@ export default function InvoiceForm() {
 
   const [customers, setCustomers] = useState([]);
   const [customerId, setCustomerId] = useState(preCustomer);
+  const [receiptTakerName, setReceiptTakerName] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
   const [date, setDate] = useState(todayISO());
@@ -57,6 +58,7 @@ export default function InvoiceForm() {
       .get(editId)
       .then((inv) => {
         setCustomerId(inv.customer?._id || inv.customer || "");
+        setReceiptTakerName(inv.receiptTakerName || "");
         setInvoiceNumber(String(inv.invoiceNumber ?? ""));
         setOrderNumber(inv.orderNumber || "");
         setDate(toInputDate(inv.date));
@@ -180,7 +182,9 @@ export default function InvoiceForm() {
         paidAtSale: paidNum,
         note: note.trim(),
         orderNumber: orderNumber.trim(),
-        ...(customerId ? { customer: customerId } : { customer: "" }),
+        ...(customerId
+          ? { customer: customerId, receiptTakerName: "" }
+          : { customer: "", receiptTakerName: receiptTakerName.trim() }),
         ...(creditPreview > BALANCE_EPS ? { expectedPayDate: new Date(expectedPayDate).toISOString() } : {}),
         ...(!isEdit && invoiceNumber && Number(invoiceNumber) > 0 ? { invoiceNumber: Number(invoiceNumber) } : {}),
       };
@@ -221,7 +225,13 @@ export default function InvoiceForm() {
         <div className="grid grid-2" style={{ marginBottom: "1rem" }}>
           <div>
             <label>Customer (required if there is credit)</label>
-            <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+            <select
+              value={customerId}
+              onChange={(e) => {
+                setCustomerId(e.target.value);
+                if (e.target.value) setReceiptTakerName("");
+              }}
+            >
               <option value="">— Walk-in (only if fully paid at sale) —</option>
               {customers.map((c) => (
                 <option key={c._id} value={c._id}>
@@ -238,6 +248,22 @@ export default function InvoiceForm() {
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
           </div>
         </div>
+
+        {!customerId && (
+          <div style={{ marginBottom: "1rem" }}>
+            <label htmlFor="receipt-taker">Receipt taker name (walk-in)</label>
+            <input
+              id="receipt-taker"
+              value={receiptTakerName}
+              onChange={(e) => setReceiptTakerName(e.target.value)}
+              placeholder="Name printed on the cash receipt (optional)"
+              autoComplete="name"
+            />
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0 0" }}>
+              Shown under TO on the cash receipt. Leave blank to print “Walk-in”.
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-2" style={{ marginBottom: "1rem" }}>
           <div>

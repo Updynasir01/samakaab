@@ -147,9 +147,10 @@ export function buildStatementWhatsAppCaption({ customerName, brandName, periodL
   } — see the PDF document.\n\n— ${shop}`;
 }
 
-export function buildInvoiceWhatsAppCaption({ customerName, brandName, invoiceNumber }) {
+export function buildInvoiceWhatsAppCaption({ customerName, brandName, invoiceNumber, isWalkIn = false }) {
   const shop = brandName || "Samakaab Supermarket";
-  return `Hello ${customerName || "there"},\n\nPlease find invoice #${invoiceNumber ?? "—"} from ${shop} — see the PDF document.\n\n— ${shop}`;
+  const docLabel = isWalkIn ? "cash receipt" : "invoice";
+  return `Hello ${customerName || "there"},\n\nPlease find ${docLabel} #${invoiceNumber ?? "—"} from ${shop} — see the PDF document.\n\n— ${shop}`;
 }
 
 export function statementPdfFilename(customer, filters = {}) {
@@ -164,7 +165,9 @@ export function statementPdfFilename(customer, filters = {}) {
 }
 
 export function invoicePdfFilename(inv) {
-  return `${safeFileSegment(`invoice-${inv?.invoiceNumber ?? "x"}`)}.pdf`;
+  const isWalkIn = !inv?.customer;
+  const label = isWalkIn ? "cash-receipt" : "invoice";
+  return `${safeFileSegment(`${label}-${inv?.invoiceNumber ?? "x"}`)}.pdf`;
 }
 
 export function buildStatementWhatsAppMessage(opts) {

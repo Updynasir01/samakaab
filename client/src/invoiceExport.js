@@ -19,12 +19,16 @@ function safeLogoHtml(company) {
 export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
   const company = companyIn || DEFAULT_COMPANY;
   const isDelivery = kind === "delivery";
-  const title = isDelivery ? "Delivery Note" : "Invoice";
+  const isWalkIn = !inv?.customer;
+  const title = isDelivery ? "Delivery Note" : isWalkIn ? "Cash Receipt" : "Invoice";
+  const detailsPill = isDelivery ? "DELIVERY DETAILS" : isWalkIn ? "RECEIPT DETAILS" : "INVOICE DETAILS";
   const docTitle = `${company.brandName} — ${title} #${inv.invoiceNumber ?? ""}`.trim();
 
   const dateStr = inv?.date ? new Date(inv.date).toLocaleString() : "";
   const dateShort = inv?.date ? new Date(inv.date).toLocaleDateString() : "";
-  const customerName = inv?.customer?.fullName || "Walk-in";
+  const customerName =
+    inv?.customer?.fullName ||
+    (String(inv?.receiptTakerName || "").trim() || "Walk-in");
   const customerAddress = inv?.customer?.address || "";
   const note = inv?.note || "";
 
@@ -145,7 +149,7 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
 
     <div class="pillRow">
       <div><span class="pill">TO :</span></div>
-      <div><span class="pill right">INVOICE DETAILS</span></div>
+      <div><span class="pill right">${escapeHtml(detailsPill)}</span></div>
     </div>
 
     <div class="grid">
@@ -165,7 +169,7 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
       <thead>
         <tr>
           <th>DATE</th>
-          <th>INVOICE</th>
+          <th>${isWalkIn && !isDelivery ? "RECEIPT" : "INVOICE"}</th>
           <th>Order No</th>
           <th>Amount Due</th>
         </tr>
@@ -173,7 +177,7 @@ export function buildInvoiceHtml(inv, { kind, company: companyIn }) {
       <tbody>
         <tr>
           <td>${escapeHtml(dateShort || dateStr)}</td>
-          <td>${escapeHtml(`INV-${inv.invoiceNumber ?? ""}`)}</td>
+          <td>${escapeHtml(`${isWalkIn && !isDelivery ? "CR" : "INV"}-${inv.invoiceNumber ?? ""}`)}</td>
           <td>${escapeHtml(inv.orderNo ?? inv.orderNumber ?? "—")}</td>
           <td>${isDelivery ? "—" : escapeHtml(formatMoney(amountDue))}</td>
         </tr>
