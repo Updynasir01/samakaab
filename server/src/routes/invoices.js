@@ -475,6 +475,15 @@ router.patch(
   body("note").optional().trim(),
   body("receiptTakerName").optional().trim(),
   async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: "Invalid input", errors: errors.array() });
+    }
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "Invalid id" });
+    }
+
+    const inv = await Invoice.findById(req.params.id);
     if (!inv) return res.status(404).json({ message: "Invoice not found" });
 
     const oldCustomerId = inv.customer ? String(inv.customer) : null;

@@ -77,10 +77,16 @@ export async function api(path, options = {}) {
         "Request timed out. The server may be waking up (wait 30–60 seconds) or your connection is slow — then try again once."
       );
     }
-    const hint = API_BASE
-      ? "Cannot connect to the API. If you see a CORS error in the browser console, set CORS_ORIGIN on Render to your site URL (e.g. https://app.samkab.com) and redeploy the backend."
-      : "Network error — set VITE_API_URL to your backend URL and rebuild the frontend.";
-    throw new Error(hint);
+    if (API_BASE) {
+      throw new Error(
+        `Cannot connect to the API (${API_BASE}). ` +
+          `If you use Render free tier, wait ~1 minute for it to wake, then refresh. ` +
+          `If the browser console shows a CORS error, set CORS_ORIGIN on Render to your site URL (e.g. https://app.samkab.com) and redeploy.`
+      );
+    }
+    throw new Error(
+      "Cannot reach the API. Start the backend with npm run dev in the server folder (port 5000), and run the frontend with npm run dev in the client folder."
+    );
   } finally {
     clearTimeout(timer);
   }
