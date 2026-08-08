@@ -27,9 +27,18 @@ async function remainingForProduct(productId) {
 
 async function attachProductStats(products) {
   const ids = products.map((p) => p._id);
-  if (!ids.length) return products.map((p) => ({ ...p, quantityRemaining: 0, nearestExpiry: null, lowStock: false }));
+  if (!ids.length) {
+    return products.map((p) => ({
+      ...p,
+      quantityRemaining: 0,
+      nearestExpiry: null,
+      lowStock: false,
+      costValue: 0,
+      sellValue: 0,
+    }));
+  }
 
-  const [qtyAgg, expiryAgg] = await Promise.all([
+  const [qtyAgg, expiryAgg, costAgg] = await Promise.all([
     InventoryBatch.aggregate([
       { $match: { product: { $in: ids }, quantityRemaining: { $gt: 0 } } },
       { $group: { _id: "$product", total: { $sum: "$quantityRemaining" } } },
@@ -50,19 +59,35 @@ async function attachProductStats(products) {
         },
       },
     ]),
+    InventoryBatch.aggregate([
+      { $match: { product: { $in: ids }, quantityRemaining: { $gt: 0 } } },
+      {
+        $group: {
+          _id: "$product",
+          costValue: {
+            $sum: { $multiply: ["$quantityRemaining", { $ifNull: ["$unitCost", 0] }] },
+          },
+        },
+      },
+    ]),
   ]);
 
   const qtyMap = new Map(qtyAgg.map((r) => [String(r._id), round2(r.total)]));
   const expMap = new Map(expiryAgg.map((r) => [String(r._id), r.nearestExpiry]));
+  const costMap = new Map(costAgg.map((r) => [String(r._id), round2(r.costValue)]));
 
   return products.map((p) => {
     const quantityRemaining = qtyMap.get(String(p._id)) || 0;
     const threshold = Number(p.lowStockThreshold ?? 0);
+    const costValue = costMap.get(String(p._id)) || 0;
+    const sellValue = round2(quantityRemaining * (Number(p.sellPrice) || 0));
     return {
       ...p,
       quantityRemaining,
       nearestExpiry: expMap.get(String(p._id)) || null,
       lowStock: threshold > 0 && quantityRemaining <= threshold,
+      costValue,
+      sellValue,
     };
   });
 }
@@ -178,8 +203,14 @@ router.delete("/products/:id", adminOnly, param("id").isMongoId(), async (req, r
   }
   const product = await InventoryProduct.findById(req.params.id);
   if (!product) return res.status(404).json({ message: "Product not found" });
-  product.active = false;
-  await product.save();
+
+  const productId = product._id;
+  await Promise.all([
+    InventoryBatch.deleteMany({ product: productId }),
+    InventoryMovement.deleteMany({ product: productId }),
+    InventoryProduct.deleteOne({ _id: productId }),
+  ]);
+
   res.json({ ok: true });
 });
 
