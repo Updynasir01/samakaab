@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { inventoryApi } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { useCompanyProfile } from "../companySettings.jsx";
@@ -35,6 +35,36 @@ function emptyStockIn() {
   };
 }
 
+function InventoryModal({ open, onClose, wide, children }) {
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(e) {
+      if (e.key === "Escape") onClose?.();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className={`modal-panel${wide ? " modal-panel-wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function Inventory() {
   const { isAdmin } = useAuth();
   const { profile } = useCompanyProfile();
@@ -59,6 +89,7 @@ export default function Inventory() {
   const [soldNote, setSoldNote] = useState("");
 
   const [adjustFor, setAdjustFor] = useState(null);
+  const [adjustName, setAdjustName] = useState("");
   const [adjustQty, setAdjustQty] = useState("");
   const [adjustDate, setAdjustDate] = useState(todayISO());
   const [adjustNote, setAdjustNote] = useState("");
@@ -66,6 +97,8 @@ export default function Inventory() {
   const [historyFor, setHistoryFor] = useState(null);
   const [movements, setMovements] = useState([]);
   const [batches, setBatches] = useState([]);
+  const [printOpen, setPrintOpen] = useState(false);
+  const printMenuRef = useRef(null);
 
   const load = useCallback(async () => {
     const list = await inventoryApi.list(q);
@@ -84,6 +117,15 @@ export default function Inventory() {
     const t = setTimeout(() => setQ(searchInput.trim()), 300);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (!printOpen) return;
+    function onDoc(e) {
+      if (!printMenuRef.current?.contains(e.target)) setPrintOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [printOpen]);
 
   const filtered = useMemo(
     () => filterInventoryProducts(products, { filter: listFilter, expiryDays: Number(expiryDays) || 30 }),
@@ -183,15 +225,39 @@ export default function Inventory() {
   async function submitAdjust(e) {
     e.preventDefault();
     if (!adjustFor) return;
+    const name = adjustName.trim();
+    if (!name) {
+      setErr("Product name is required.");
+      return;
+    }
+    const qty = Number(adjustQty);
+    const hasAdjust = Number.isFinite(qty) && qty > 0;
+    if (hasAdjust && !adjustNote.trim()) {
+      setErr("Enter a reason to remove stock.");
+      return;
+    }
+    if (!hasAdjust && name === adjustFor.name) {
+      setErr("Change the name, or enter a quantity to remove.");
+      return;
+    }
     setBusy(true);
     setErr("");
     try {
-      await inventoryApi.adjust(adjustFor._id, {
-        quantity: Number(adjustQty),
-        date: new Date(adjustDate).toISOString(),
-        note: adjustNote.trim() || "Adjustment (breakage / loss)",
-      });
+      if (name !== adjustFor.name) {
+        await inventoryApi.update(adjustFor._id, { name });
+        if (historyFor?._id === adjustFor._id) {
+          setHistoryFor({ ...historyFor, name });
+        }
+      }
+      if (hasAdjust) {
+        await inventoryApi.adjust(adjustFor._id, {
+          quantity: qty,
+          date: new Date(adjustDate).toISOString(),
+          note: adjustNote.trim() || "Adjustment (breakage / loss)",
+        });
+      }
       setAdjustFor(null);
+      setAdjustName("");
       setAdjustQty("");
       setAdjustNote("");
       setAdjustDate(todayISO());
@@ -337,18 +403,51 @@ export default function Inventory() {
           </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
-            <button type="button" className="btn btn-ghost" onClick={() => printList("all")}>
-              Print all
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => printList("low")}>
-              Print low stock
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => printList("expiring")}>
-              Print expiring
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => printList("closing")}>
-              Print closing sheet
-            </button>
+            <div className="dropdown" ref={printMenuRef}>
+              <button type="button" className="btn" onClick={() => setPrintOpen((v) => !v)}>
+                Print ▾
+              </button>
+              {printOpen && (
+                <div className="dropdown-menu">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrintOpen(false);
+                      printList("all");
+                    }}
+                  >
+                    Print all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrintOpen(false);
+                      printList("low");
+                    }}
+                  >
+                    Print low stock
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrintOpen(false);
+                      printList("expiring");
+                    }}
+                  >
+                    Print expiring
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrintOpen(false);
+                      printList("closing");
+                    }}
+                  >
+                    Print closing sheet
+                  </button>
+                </div>
+              )}
+            </div>
             <button type="button" className="btn btn-primary" onClick={exportCsv}>
               Download Excel/CSV
             </button>
@@ -467,18 +566,28 @@ export default function Inventory() {
             <table>
               <thead>
                 <tr>
-                  <th>Product</th>
+                  <th>#</th>
+                  <th>Item name</th>
+                  <th>Qty</th>
                   <th>Unit</th>
-                  <th>Remaining</th>
-                  <th>Nearest expiry</th>
-                  <th>Sell price</th>
-                  <th>Cost value</th>
+                  <th>Cost</th>
+                  <th>Total</th>
+                  <th>Sale price</th>
+                  <th>Total</th>
+                  <th>EXP</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p) => (
+                {filtered.map((p, i) => {
+                  const qty = Number(p.quantityRemaining ?? 0);
+                  const costValue = Number(p.costValue) || 0;
+                  const avgCost = qty > 0 && costValue > 0 ? costValue / qty : 0;
+                  const sellPrice = Number(p.sellPrice) || 0;
+                  const sellValue = Number(p.sellValue) || qty * sellPrice;
+                  return (
                   <tr key={p._id}>
+                    <td>{i + 1}</td>
                     <td>
                       <strong>{p.name}</strong>
                       {p.lowStock && (
@@ -487,13 +596,15 @@ export default function Inventory() {
                         </span>
                       )}
                     </td>
-                    <td>{inventoryUnitLabel(p.unit)}</td>
                     <td>
-                      <strong>{p.quantityRemaining ?? 0}</strong>
+                      <strong>{qty}</strong>
                     </td>
+                    <td>{inventoryUnitLabel(p.unit)}</td>
+                    <td>{avgCost > 0 ? formatMoney(avgCost) : "—"}</td>
+                    <td>{costValue > 0 ? formatMoney(costValue) : "—"}</td>
+                    <td>{sellPrice > 0 ? formatMoney(sellPrice) : "—"}</td>
+                    <td>{sellValue > 0 ? formatMoney(sellValue) : "—"}</td>
                     <td>{p.nearestExpiry ? toInputDate(p.nearestExpiry) : "—"}</td>
-                    <td>{Number(p.sellPrice) > 0 ? formatMoney(p.sellPrice) : "—"}</td>
-                    <td>{Number(p.costValue) > 0 ? formatMoney(p.costValue) : "—"}</td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       <button
                         type="button"
@@ -528,12 +639,13 @@ export default function Inventory() {
                         onClick={() => {
                           clearPanels();
                           setAdjustFor(p);
+                          setAdjustName(p.name || "");
                           setAdjustQty("");
                           setAdjustDate(todayISO());
                           setAdjustNote("");
                         }}
                       >
-                        Adjust
+                        Edit
                       </button>
                       <button
                         type="button"
@@ -565,7 +677,8 @@ export default function Inventory() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -573,164 +686,172 @@ export default function Inventory() {
       </div>
 
       {stockInFor && (
-        <form className="card" onSubmit={submitStockIn} style={{ marginTop: "1rem" }}>
-          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>
-            Add stock — {stockInFor.name} ({inventoryUnitLabel(stockInFor.unit)})
-          </h2>
-          <div className="grid grid-2" style={{ gap: "0.75rem" }}>
-            <div>
-              <label>Quantity received</label>
-              <input
-                type="number"
-                min="0.001"
-                step="any"
-                value={stockInForm.quantity}
-                onChange={(e) => setStockInForm({ ...stockInForm, quantity: e.target.value })}
-                required
-              />
+        <InventoryModal open onClose={() => !busy && setStockInFor(null)}>
+          <form onSubmit={submitStockIn}>
+            <h2 style={{ fontSize: "1.05rem" }}>
+              Add stock — {stockInFor.name} ({inventoryUnitLabel(stockInFor.unit)})
+            </h2>
+            {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
+            <div className="grid grid-2" style={{ gap: "0.75rem" }}>
+              <div>
+                <label>Quantity received</label>
+                <input
+                  type="number"
+                  min="0.001"
+                  step="any"
+                  value={stockInForm.quantity}
+                  onChange={(e) => setStockInForm({ ...stockInForm, quantity: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label>Unit cost (optional)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={stockInForm.unitCost}
+                  onChange={(e) => setStockInForm({ ...stockInForm, unitCost: e.target.value })}
+                />
+              </div>
+              <div>
+                <label>Supplier (optional)</label>
+                <input
+                  value={stockInForm.supplier}
+                  onChange={(e) => setStockInForm({ ...stockInForm, supplier: e.target.value })}
+                  placeholder="Company that sent the goods"
+                />
+              </div>
+              <div>
+                <label>Received date</label>
+                <input
+                  type="date"
+                  value={stockInForm.receivedAt}
+                  onChange={(e) => setStockInForm({ ...stockInForm, receivedAt: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label>Expiry date (this delivery)</label>
+                <input
+                  type="date"
+                  value={stockInForm.expiryDate}
+                  onChange={(e) => setStockInForm({ ...stockInForm, expiryDate: e.target.value })}
+                />
+              </div>
+              <div>
+                <label>Note</label>
+                <input
+                  value={stockInForm.note}
+                  onChange={(e) => setStockInForm({ ...stockInForm, note: e.target.value })}
+                />
+              </div>
             </div>
-            <div>
-              <label>Unit cost (optional)</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={stockInForm.unitCost}
-                onChange={(e) => setStockInForm({ ...stockInForm, unitCost: e.target.value })}
-              />
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+              <button type="submit" className="btn btn-primary" disabled={busy}>
+                Save stock in
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => !busy && setStockInFor(null)}>
+                Cancel
+              </button>
             </div>
-            <div>
-              <label>Supplier (optional)</label>
-              <input
-                value={stockInForm.supplier}
-                onChange={(e) => setStockInForm({ ...stockInForm, supplier: e.target.value })}
-                placeholder="Company that sent the goods"
-              />
-            </div>
-            <div>
-              <label>Received date</label>
-              <input
-                type="date"
-                value={stockInForm.receivedAt}
-                onChange={(e) => setStockInForm({ ...stockInForm, receivedAt: e.target.value })}
-                required
-              />
-            </div>
-            <div>
-              <label>Expiry date (this delivery)</label>
-              <input
-                type="date"
-                value={stockInForm.expiryDate}
-                onChange={(e) => setStockInForm({ ...stockInForm, expiryDate: e.target.value })}
-              />
-            </div>
-            <div>
-              <label>Note</label>
-              <input
-                value={stockInForm.note}
-                onChange={(e) => setStockInForm({ ...stockInForm, note: e.target.value })}
-              />
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
-            <button type="submit" className="btn btn-primary" disabled={busy}>
-              Save stock in
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setStockInFor(null)}>
-              Cancel
-            </button>
-          </div>
-        </form>
+          </form>
+        </InventoryModal>
       )}
 
       {soldFor && (
-        <form className="card" onSubmit={submitSold} style={{ marginTop: "1rem" }}>
-          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>
-            Record sold (closing) — {soldFor.name}
-          </h2>
-          <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0 }}>
-            Remaining now: <strong>{soldFor.quantityRemaining ?? 0}</strong> {inventoryUnitLabel(soldFor.unit)}.
-          </p>
-          <div className="grid grid-2" style={{ gap: "0.75rem" }}>
-            <div>
-              <label>Quantity sold</label>
-              <input
-                type="number"
-                min="0.001"
-                step="any"
-                value={soldQty}
-                onChange={(e) => setSoldQty(e.target.value)}
-                required
-              />
+        <InventoryModal open onClose={() => !busy && setSoldFor(null)}>
+          <form onSubmit={submitSold}>
+            <h2 style={{ fontSize: "1.05rem" }}>Record sold (closing) — {soldFor.name}</h2>
+            {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
+            <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0 }}>
+              Remaining now: <strong>{soldFor.quantityRemaining ?? 0}</strong> {inventoryUnitLabel(soldFor.unit)}.
+            </p>
+            <div className="grid grid-2" style={{ gap: "0.75rem" }}>
+              <div>
+                <label>Quantity sold</label>
+                <input
+                  type="number"
+                  min="0.001"
+                  step="any"
+                  value={soldQty}
+                  onChange={(e) => setSoldQty(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label>Date</label>
+                <input type="date" value={soldDate} onChange={(e) => setSoldDate(e.target.value)} required />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label>Note</label>
+                <input value={soldNote} onChange={(e) => setSoldNote(e.target.value)} placeholder="Closing count" />
+              </div>
             </div>
-            <div>
-              <label>Date</label>
-              <input type="date" value={soldDate} onChange={(e) => setSoldDate(e.target.value)} required />
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+              <button type="submit" className="btn btn-primary" disabled={busy}>
+                Save sold
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => !busy && setSoldFor(null)}>
+                Cancel
+              </button>
             </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label>Note</label>
-              <input value={soldNote} onChange={(e) => setSoldNote(e.target.value)} placeholder="Closing count" />
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
-            <button type="submit" className="btn btn-primary" disabled={busy}>
-              Save sold
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setSoldFor(null)}>
-              Cancel
-            </button>
-          </div>
-        </form>
+          </form>
+        </InventoryModal>
       )}
 
       {adjustFor && (
-        <form className="card" onSubmit={submitAdjust} style={{ marginTop: "1rem" }}>
-          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>
-            Adjust stock (breakage / loss) — {adjustFor.name}
-          </h2>
-          <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0 }}>
-            Remaining now: <strong>{adjustFor.quantityRemaining ?? 0}</strong> {inventoryUnitLabel(adjustFor.unit)}. This
-            removes stock without recording a sale.
-          </p>
-          <div className="grid grid-2" style={{ gap: "0.75rem" }}>
-            <div>
-              <label>Quantity to remove</label>
-              <input
-                type="number"
-                min="0.001"
-                step="any"
-                value={adjustQty}
-                onChange={(e) => setAdjustQty(e.target.value)}
-                required
-              />
+        <InventoryModal open onClose={() => !busy && setAdjustFor(null)}>
+          <form onSubmit={submitAdjust}>
+            <h2 style={{ fontSize: "1.05rem" }}>Edit — {adjustFor.name}</h2>
+            {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
+            <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0 }}>
+              Remaining now: <strong>{adjustFor.quantityRemaining ?? 0}</strong> {inventoryUnitLabel(adjustFor.unit)}. You
+              can rename the product. Quantity is only needed if you are removing stock (breakage / loss), not a sale.
+            </p>
+            <div className="grid grid-2" style={{ gap: "0.75rem" }}>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label>Item name</label>
+                <input value={adjustName} onChange={(e) => setAdjustName(e.target.value)} required />
+              </div>
+              <div>
+                <label>Quantity to remove (optional)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={adjustQty}
+                  onChange={(e) => setAdjustQty(e.target.value)}
+                  placeholder="Leave blank to only rename"
+                />
+              </div>
+              <div>
+                <label>Date</label>
+                <input type="date" value={adjustDate} onChange={(e) => setAdjustDate(e.target.value)} />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label>Reason (if removing stock)</label>
+                <input
+                  value={adjustNote}
+                  onChange={(e) => setAdjustNote(e.target.value)}
+                  placeholder="Breakage, spoilage, theft…"
+                />
+              </div>
             </div>
-            <div>
-              <label>Date</label>
-              <input type="date" value={adjustDate} onChange={(e) => setAdjustDate(e.target.value)} required />
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+              <button type="submit" className="btn btn-primary" disabled={busy}>
+                Save
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => !busy && setAdjustFor(null)}>
+                Cancel
+              </button>
             </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label>Reason</label>
-              <input
-                value={adjustNote}
-                onChange={(e) => setAdjustNote(e.target.value)}
-                placeholder="Breakage, spoilage, theft…"
-                required
-              />
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
-            <button type="submit" className="btn btn-primary" disabled={busy}>
-              Save adjustment
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setAdjustFor(null)}>
-              Cancel
-            </button>
-          </div>
-        </form>
+          </form>
+        </InventoryModal>
       )}
 
       {historyFor && (
-        <div className="card" style={{ marginTop: "1rem" }}>
+        <InventoryModal wide open onClose={() => setHistoryFor(null)}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
             <h2 style={{ margin: 0, fontSize: "1.05rem" }}>History — {historyFor.name}</h2>
             <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -742,6 +863,7 @@ export default function Inventory() {
               </button>
             </div>
           </div>
+          {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
 
           <h3 style={{ fontSize: "0.95rem", marginBottom: "0.35rem" }}>Open batches (remaining)</h3>
           {batches.length === 0 ? (
@@ -806,7 +928,7 @@ export default function Inventory() {
               </table>
             </div>
           )}
-        </div>
+        </InventoryModal>
       )}
     </div>
   );
