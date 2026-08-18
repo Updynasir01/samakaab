@@ -221,6 +221,18 @@ export const invoicesApi = {
   remove: (id) => api(`/invoices/${id}`, { method: "DELETE" }),
 };
 
+export const accountApi = {
+  list: (from = "", to = "") => {
+    const q = new URLSearchParams();
+    if (from) q.set("from", from);
+    if (to) q.set("to", to);
+    const qs = q.toString();
+    return api(`/account${qs ? `?${qs}` : ""}`);
+  },
+  create: (body) => api("/account", { method: "POST", body: JSON.stringify(body) }),
+  remove: (id) => api(`/account/${id}`, { method: "DELETE" }),
+};
+
 export const inventoryApi = {
   list: (q = "") => api(`/inventory/products${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   create: (body) => api("/inventory/products", { method: "POST", body: JSON.stringify(body) }),

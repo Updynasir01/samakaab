@@ -89,6 +89,9 @@ export default function Layout() {
             <NavLink to="/inventory" style={navStyle}>
               Inventory
             </NavLink>
+            <NavLink to="/account" style={navStyle}>
+              Account
+            </NavLink>
             <NavLink to="/reports" style={navStyle}>
               Reports
             </NavLink>

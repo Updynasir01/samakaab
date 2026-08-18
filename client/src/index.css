@@ -526,3 +526,19 @@ a.dashboard-debt-btn:hover {
     grid-template-columns: 1fr;
   }
 }
+
+@media print {
+  header,
+  footer,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .card {
+    box-shadow: none !important;
+    border: none !important;
+  }
+}
