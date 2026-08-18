@@ -18,6 +18,8 @@ function safeLogoHtml(company) {
 
 const UNIT_LABELS = { bottle: "Bottle", box: "Box", kg: "Kg", piece: "Piece" };
 
+export const INVENTORY_STORES = ["Store 1", "Store 2", "Store 3"];
+
 export function inventoryUnitLabel(u) {
   return UNIT_LABELS[u] || u || "—";
 }
@@ -148,7 +150,7 @@ export function buildInventoryListHtml(products, company, { kind = "all", expiry
   const isClosing = kind === "closing";
   const headCols = isClosing
     ? `<th>#</th><th>Product</th><th>Unit</th><th class="num">On hand</th><th class="num">Sold today</th><th class="num">Remaining</th>`
-    : `<th>#</th><th>Product</th><th>Unit</th><th class="num">Remaining</th><th class="num">Sell price</th><th>Nearest expiry</th><th>Status</th>`;
+    : `<th>#</th><th>Product</th><th>Store</th><th>Unit</th><th class="num">Remaining</th><th class="num">Sell price</th><th>Nearest expiry</th><th>Status</th>`;
 
   const rows = list
     .map((p, i) => {
@@ -165,6 +167,7 @@ export function buildInventoryListHtml(products, company, { kind = "all", expiry
       return `<tr class="${rowClass(p, expiryDays)}">
         <td>${i + 1}</td>
         <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.store || "—")}</td>
         <td>${escapeHtml(inventoryUnitLabel(p.unit))}</td>
         <td class="num">${escapeHtml(String(p.quantityRemaining ?? 0))}</td>
         <td class="num">${Number(p.sellPrice) > 0 ? escapeHtml(formatMoney(p.sellPrice)) : "—"}</td>
@@ -238,12 +241,12 @@ export function buildProductStockCardHtml(product, batches, movements, company) 
     </div>
     <div class="sectionTitle">Open batches</div>
     <table class="inv">
-      <thead><tr><th>Received</th><th class="num">Remaining</th><th class="num">Of</th><th>Expiry</th><th>Supplier</th><th class="num">Cost</th></tr></thead>
+      <thead><tr><th>Received</th><th class="num">Remaining</th><th class="num">Of</th><th>Expiry</th><th>Store</th><th class="num">Cost</th></tr></thead>
       <tbody>${batchRows || `<tr><td colspan="6" class="muted">No open batches.</td></tr>`}</tbody>
     </table>
     <div class="sectionTitle">Recent movements</div>
     <table class="inv">
-      <thead><tr><th>Date</th><th>Type</th><th class="num">Qty</th><th>Supplier</th><th>Note</th><th>By</th></tr></thead>
+      <thead><tr><th>Date</th><th>Type</th><th class="num">Qty</th><th>Store</th><th>Note</th><th>By</th></tr></thead>
       <tbody>${moveRows || `<tr><td colspan="6" class="muted">No movements.</td></tr>`}</tbody>
     </table>`;
 
@@ -262,7 +265,7 @@ export function buildStockInReceiptHtml(product, batch, company) {
         <tr><td>Unit</td><td>${escapeHtml(inventoryUnitLabel(p.unit))}</td></tr>
         <tr><td>Quantity received</td><td class="num"><strong>${escapeHtml(String(b.quantityReceived ?? b.quantityRemaining ?? ""))}</strong></td></tr>
         <tr><td>Unit cost</td><td class="num">${Number(b.unitCost) > 0 ? escapeHtml(formatMoney(b.unitCost)) : "—"}</td></tr>
-        <tr><td>Supplier</td><td>${escapeHtml(b.supplier || "—")}</td></tr>
+        <tr><td>Store</td><td>${escapeHtml(b.supplier || "—")}</td></tr>
         <tr><td>Expiry</td><td>${b.expiryDate ? escapeHtml(toInputDate(b.expiryDate)) : "—"}</td></tr>
         <tr><td>Note</td><td>${escapeHtml(b.note || "—")}</td></tr>
         <tr><td>Entered by</td><td>${escapeHtml(b.createdBy || "—")}</td></tr>
@@ -274,6 +277,7 @@ export function buildStockInReceiptHtml(product, batch, company) {
 export function downloadInventoryCsv(products, filename = "inventory") {
   const header = [
     "Product",
+    "Store",
     "Unit",
     "Remaining",
     "Sell price",
@@ -285,6 +289,7 @@ export function downloadInventoryCsv(products, filename = "inventory") {
   ];
   const rows = (products || []).map((p) => [
     p.name,
+    p.store || "",
     inventoryUnitLabel(p.unit),
     p.quantityRemaining ?? 0,
     p.sellPrice ?? 0,
@@ -297,8 +302,9 @@ export function downloadInventoryCsv(products, filename = "inventory") {
   downloadCsv(`${safeFileSegment(filename)}.csv`, header, rows);
 }
 
-export function filterInventoryProducts(products, { filter = "all", expiryDays = 30 } = {}) {
-  const list = products || [];
+export function filterInventoryProducts(products, { filter = "all", expiryDays = 30, store = "" } = {}) {
+  let list = products || [];
+  if (store) list = list.filter((p) => p.store === store);
   if (filter === "low") return list.filter((p) => p.lowStock);
   if (filter === "expiring") {
     return list.filter((p) => {

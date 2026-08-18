@@ -9,6 +9,7 @@ import {
   downloadInventoryCsv,
   filterInventoryProducts,
   inventoryUnitLabel,
+  INVENTORY_STORES,
   printInventoryHtml,
 } from "../inventoryExport.js";
 
@@ -20,7 +21,7 @@ const UNITS = [
 ];
 
 function emptyProductForm() {
-  return { name: "", unit: "bottle", sellPrice: "", lowStockThreshold: "10", note: "" };
+  return { name: "", unit: "bottle", sellPrice: "", lowStockThreshold: "10", note: "", store: "" };
 }
 
 function emptyStockIn() {
@@ -28,7 +29,7 @@ function emptyStockIn() {
     quantity: "",
     unitCost: "",
     expiryDate: "",
-    supplier: "",
+    store: "",
     receivedAt: todayISO(),
     note: "",
   };
@@ -70,6 +71,7 @@ export default function Inventory() {
   const [q, setQ] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [listFilter, setListFilter] = useState("all");
+  const [storeFilter, setStoreFilter] = useState("");
   const [expiryDays, setExpiryDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -88,6 +90,7 @@ export default function Inventory() {
 
   const [adjustFor, setAdjustFor] = useState(null);
   const [adjustName, setAdjustName] = useState("");
+  const [adjustStore, setAdjustStore] = useState("");
   const [adjustQty, setAdjustQty] = useState("");
   const [adjustDate, setAdjustDate] = useState(todayISO());
   const [adjustNote, setAdjustNote] = useState("");
@@ -130,8 +133,13 @@ export default function Inventory() {
   }, [printOpen, manageId]);
 
   const filtered = useMemo(
-    () => filterInventoryProducts(products, { filter: listFilter, expiryDays: Number(expiryDays) || 30 }),
-    [products, listFilter, expiryDays]
+    () =>
+      filterInventoryProducts(products, {
+        filter: listFilter,
+        expiryDays: Number(expiryDays) || 30,
+        store: storeFilter,
+      }),
+    [products, listFilter, expiryDays, storeFilter]
   );
 
   const totals = useMemo(() => {
@@ -159,6 +167,7 @@ export default function Inventory() {
       await inventoryApi.create({
         name: newForm.name.trim(),
         unit: newForm.unit,
+        store: newForm.store,
         sellPrice: Number(newForm.sellPrice) || 0,
         lowStockThreshold: Number(newForm.lowStockThreshold) || 0,
         note: newForm.note.trim(),
@@ -182,7 +191,7 @@ export default function Inventory() {
       const result = await inventoryApi.stockIn(stockInFor._id, {
         quantity: Number(stockInForm.quantity),
         unitCost: Number(stockInForm.unitCost) || 0,
-        supplier: stockInForm.supplier.trim(),
+        store: stockInForm.store,
         note: stockInForm.note.trim(),
         receivedAt: new Date(stockInForm.receivedAt).toISOString(),
         ...(stockInForm.expiryDate ? { expiryDate: new Date(stockInForm.expiryDate).toISOString() } : {}),
@@ -239,17 +248,21 @@ export default function Inventory() {
       setErr("Enter a reason to remove stock.");
       return;
     }
-    if (!hasAdjust && name === adjustFor.name) {
-      setErr("Change the name, or enter a quantity to remove.");
+    const storeChanged = adjustStore && adjustStore !== (adjustFor.store || "");
+    if (!hasAdjust && name === adjustFor.name && !storeChanged) {
+      setErr("Change the name or store, or enter a quantity to remove.");
       return;
     }
     setBusy(true);
     setErr("");
     try {
-      if (name !== adjustFor.name) {
-        await inventoryApi.update(adjustFor._id, { name });
+      const productPatch = {};
+      if (name !== adjustFor.name) productPatch.name = name;
+      if (storeChanged) productPatch.store = adjustStore;
+      if (Object.keys(productPatch).length) {
+        await inventoryApi.update(adjustFor._id, productPatch);
         if (historyFor?._id === adjustFor._id) {
-          setHistoryFor({ ...historyFor, name });
+          setHistoryFor({ ...historyFor, ...productPatch });
         }
       }
       if (hasAdjust) {
@@ -303,7 +316,11 @@ export default function Inventory() {
     const list =
       kind === "closing"
         ? products
-        : filterInventoryProducts(products, { filter: kind === "all" ? "all" : kind, expiryDays: days });
+        : filterInventoryProducts(products, {
+            filter: kind === "all" ? "all" : kind,
+            expiryDays: days,
+            store: storeFilter,
+          });
     printInventoryHtml(
       buildInventoryListHtml(list, profile, {
         kind: kind === "closing" ? "closing" : kind,
@@ -317,6 +334,7 @@ export default function Inventory() {
     const list = filterInventoryProducts(products, {
       filter: listFilter === "all" ? "all" : listFilter,
       expiryDays: days,
+      store: storeFilter,
     });
     const suffix = listFilter === "all" ? "all" : listFilter;
     downloadInventoryCsv(list, `inventory-${suffix}-${todayISO()}`);
@@ -483,6 +501,21 @@ export default function Inventory() {
               </select>
             </div>
             <div>
+              <label>Store</label>
+              <select
+                value={newForm.store}
+                onChange={(e) => setNewForm({ ...newForm, store: e.target.value })}
+                required
+              >
+                <option value="">Select store</option>
+                {INVENTORY_STORES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label>Sell price (optional)</label>
               <input
                 type="number"
@@ -540,6 +573,17 @@ export default function Inventory() {
               <option value="expiring">Expiring soon</option>
             </select>
           </div>
+          <div style={{ flex: "0 1 160px" }}>
+            <label htmlFor="inv-store">Store</label>
+            <select id="inv-store" value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)}>
+              <option value="">All stores</option>
+              {INVENTORY_STORES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {!loading && filtered.length > 0 && (
@@ -561,10 +605,10 @@ export default function Inventory() {
                 <tr>
                   <th>#</th>
                   <th>Item name</th>
+                  <th>Store</th>
                   <th>Qty</th>
                   <th>Unit</th>
                   <th>Cost</th>
-                  <th>Total</th>
                   <th>Sale price</th>
                   <th>Total</th>
                   <th>EXP</th>
@@ -589,12 +633,12 @@ export default function Inventory() {
                         </span>
                       )}
                     </td>
+                    <td>{p.store || "—"}</td>
                     <td>
                       <strong>{qty}</strong>
                     </td>
                     <td>{inventoryUnitLabel(p.unit)}</td>
                     <td>{avgCost > 0 ? formatMoney(avgCost) : "—"}</td>
-                    <td>{costValue > 0 ? formatMoney(costValue) : "—"}</td>
                     <td>{sellPrice > 0 ? formatMoney(sellPrice) : "—"}</td>
                     <td>{sellValue > 0 ? formatMoney(sellValue) : "—"}</td>
                     <td>{p.nearestExpiry ? toInputDate(p.nearestExpiry) : "—"}</td>
@@ -622,7 +666,7 @@ export default function Inventory() {
                                 setManageId(null);
                                 clearPanels();
                                 setStockInFor(p);
-                                setStockInForm(emptyStockIn());
+                                setStockInForm({ ...emptyStockIn(), store: p.store || "" });
                               }}
                             >
                               Add stock
@@ -647,6 +691,7 @@ export default function Inventory() {
                                 clearPanels();
                                 setAdjustFor(p);
                                 setAdjustName(p.name || "");
+                          setAdjustStore(p.store || "");
                                 setAdjustQty("");
                                 setAdjustDate(todayISO());
                                 setAdjustNote("");
@@ -728,12 +773,19 @@ export default function Inventory() {
                 />
               </div>
               <div>
-                <label>Supplier (optional)</label>
-                <input
-                  value={stockInForm.supplier}
-                  onChange={(e) => setStockInForm({ ...stockInForm, supplier: e.target.value })}
-                  placeholder="Company that sent the goods"
-                />
+                <label>Store</label>
+                <select
+                  value={stockInForm.store}
+                  onChange={(e) => setStockInForm({ ...stockInForm, store: e.target.value })}
+                  required
+                >
+                  <option value="">Select store</option>
+                  {INVENTORY_STORES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label>Received date</label>
@@ -827,6 +879,17 @@ export default function Inventory() {
                 <label>Item name</label>
                 <input value={adjustName} onChange={(e) => setAdjustName(e.target.value)} required />
               </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label>Store</label>
+                <select value={adjustStore} onChange={(e) => setAdjustStore(e.target.value)} required>
+                  <option value="">Select store</option>
+                  {INVENTORY_STORES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label>Quantity to remove (optional)</label>
                 <input
@@ -890,7 +953,7 @@ export default function Inventory() {
                     <th>Remaining</th>
                     <th>Of</th>
                     <th>Expiry</th>
-                    <th>Supplier</th>
+                    <th>Store</th>
                     <th>Cost</th>
                   </tr>
                 </thead>
@@ -921,7 +984,7 @@ export default function Inventory() {
                     <th>Date</th>
                     <th>Type</th>
                     <th>Qty</th>
-                    <th>Supplier</th>
+                    <th>Store</th>
                     <th>Note</th>
                     <th>By</th>
                   </tr>

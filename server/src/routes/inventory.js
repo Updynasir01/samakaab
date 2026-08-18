@@ -1,7 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { body, param, query, validationResult } from "express-validator";
-import InventoryProduct, { INVENTORY_UNITS } from "../models/InventoryProduct.js";
+import InventoryProduct, { INVENTORY_UNITS, INVENTORY_STORES } from "../models/InventoryProduct.js";
 import InventoryBatch from "../models/InventoryBatch.js";
 import InventoryMovement from "../models/InventoryMovement.js";
 import { authRequired, actorUsername } from "../middleware/auth.js";
@@ -151,6 +151,7 @@ router.post(
   body("sellPrice").optional().isFloat({ min: 0 }),
   body("lowStockThreshold").optional().isFloat({ min: 0 }),
   body("note").optional().trim(),
+  body("store").isIn(INVENTORY_STORES),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ message: "Invalid input", errors: errors.array() });
@@ -161,6 +162,7 @@ router.post(
       sellPrice: round2(req.body.sellPrice ?? 0),
       lowStockThreshold: round2(req.body.lowStockThreshold ?? 10),
       note: String(req.body.note || "").trim(),
+      store: req.body.store,
       createdBy: actorUsername(req),
     });
     const lean = product.toObject();
@@ -177,6 +179,7 @@ router.patch(
   body("lowStockThreshold").optional().isFloat({ min: 0 }),
   body("note").optional().trim(),
   body("active").optional().isBoolean(),
+  body("store").optional().isIn(INVENTORY_STORES),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ message: "Invalid input", errors: errors.array() });
@@ -190,6 +193,7 @@ router.patch(
     if (req.body.lowStockThreshold != null) product.lowStockThreshold = round2(req.body.lowStockThreshold);
     if (req.body.note != null) product.note = String(req.body.note).trim();
     if (req.body.active != null) product.active = Boolean(req.body.active);
+    if (req.body.store != null) product.store = req.body.store;
     await product.save();
 
     const [withStats] = await attachProductStats([product.toObject()]);
@@ -250,6 +254,7 @@ router.post(
   body("quantity").isFloat({ gt: 0 }),
   body("unitCost").optional().isFloat({ min: 0 }),
   body("expiryDate").optional({ nullable: true }).isISO8601(),
+  body("store").isIn(INVENTORY_STORES),
   body("supplier").optional().trim(),
   body("receivedAt").optional().isISO8601(),
   body("note").optional().trim(),
@@ -262,7 +267,7 @@ router.post(
 
     const quantity = round2(req.body.quantity);
     const unitCost = round2(req.body.unitCost ?? 0);
-    const supplier = String(req.body.supplier || "").trim();
+    const store = String(req.body.store || req.body.supplier || "").trim();
     const note = String(req.body.note || "").trim();
     const receivedAt = req.body.receivedAt ? new Date(req.body.receivedAt) : new Date();
     const expiryDate = req.body.expiryDate ? new Date(req.body.expiryDate) : null;
@@ -274,7 +279,7 @@ router.post(
       quantityRemaining: quantity,
       unitCost,
       expiryDate,
-      supplier,
+      supplier: store,
       receivedAt,
       note,
       createdBy: enteredBy,
@@ -287,7 +292,7 @@ router.post(
       batch: batch._id,
       date: receivedAt,
       note,
-      supplier,
+      supplier: store,
       createdBy: enteredBy,
     });
 

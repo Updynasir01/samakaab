@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 export const INVENTORY_UNITS = ["bottle", "box", "kg", "piece"];
+export const INVENTORY_STORES = ["Store 1", "Store 2", "Store 3"];
 
 const inventoryProductSchema = new mongoose.Schema(
   {
@@ -11,6 +12,7 @@ const inventoryProductSchema = new mongoose.Schema(
     /** Alert when remaining qty is at or below this */
     lowStockThreshold: { type: Number, min: 0, default: 10 },
     note: { type: String, trim: true, default: "" },
+    store: { type: String, enum: INVENTORY_STORES, default: "Store 1" },
     active: { type: Boolean, default: true },
     createdBy: { type: String, trim: true, default: "" },
   },
