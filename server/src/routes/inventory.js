@@ -4,7 +4,7 @@ import { body, param, query, validationResult } from "express-validator";
 import InventoryProduct, { INVENTORY_UNITS } from "../models/InventoryProduct.js";
 import InventoryBatch from "../models/InventoryBatch.js";
 import InventoryMovement from "../models/InventoryMovement.js";
-import { authRequired, adminOnly, actorUsername } from "../middleware/auth.js";
+import { authRequired, actorUsername } from "../middleware/auth.js";
 
 const router = Router();
 router.use(authRequired);
@@ -197,7 +197,7 @@ router.patch(
   }
 );
 
-router.delete("/products/:id", adminOnly, param("id").isMongoId(), async (req, res) => {
+router.delete("/products/:id", param("id").isMongoId(), async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) {
     return res.status(400).json({ message: "Invalid id" });
   }

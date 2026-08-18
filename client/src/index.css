@@ -521,6 +521,23 @@ a.dashboard-debt-btn:hover {
   background: var(--bg-soft);
 }
 
+.dropdown-menu-end {
+  left: auto;
+  right: 0;
+}
+
+.dropdown-menu button.danger {
+  color: var(--danger);
+}
+
+.table-wrap.menu-open {
+  overflow: visible;
+}
+
+.table-wrap .dropdown-menu {
+  z-index: 30;
+}
+
 @media (max-width: 767px) {
   .grid-5 {
     grid-template-columns: 1fr;

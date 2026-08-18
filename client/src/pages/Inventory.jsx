@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { inventoryApi } from "../api.js";
-import { useAuth } from "../auth.jsx";
 import { useCompanyProfile } from "../companySettings.jsx";
 import { formatMoney, todayISO, toInputDate } from "../util.js";
 import {
@@ -66,7 +65,6 @@ function InventoryModal({ open, onClose, wide, children }) {
 }
 
 export default function Inventory() {
-  const { isAdmin } = useAuth();
   const { profile } = useCompanyProfile();
   const [products, setProducts] = useState([]);
   const [q, setQ] = useState("");
@@ -99,6 +97,9 @@ export default function Inventory() {
   const [batches, setBatches] = useState([]);
   const [printOpen, setPrintOpen] = useState(false);
   const printMenuRef = useRef(null);
+  const [deleteFor, setDeleteFor] = useState(null);
+  const [manageId, setManageId] = useState(null);
+  const manageMenuRef = useRef(null);
 
   const load = useCallback(async () => {
     const list = await inventoryApi.list(q);
@@ -119,13 +120,14 @@ export default function Inventory() {
   }, [searchInput]);
 
   useEffect(() => {
-    if (!printOpen) return;
+    if (!printOpen && !manageId) return;
     function onDoc(e) {
-      if (!printMenuRef.current?.contains(e.target)) setPrintOpen(false);
+      if (printOpen && !printMenuRef.current?.contains(e.target)) setPrintOpen(false);
+      if (manageId && !manageMenuRef.current?.contains(e.target)) setManageId(null);
     }
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [printOpen]);
+  }, [printOpen, manageId]);
 
   const filtered = useMemo(
     () => filterInventoryProducts(products, { filter: listFilter, expiryDays: Number(expiryDays) || 30 }),
@@ -146,6 +148,7 @@ export default function Inventory() {
     setSoldFor(null);
     setAdjustFor(null);
     setHistoryFor(null);
+    setDeleteFor(null);
   }
 
   async function createProduct(e) {
@@ -319,24 +322,14 @@ export default function Inventory() {
     downloadInventoryCsv(list, `inventory-${suffix}-${todayISO()}`);
   }
 
-  async function removeProduct(p) {
-    if (!isAdmin) return;
-    const remaining = Number(p.quantityRemaining ?? p.onHand ?? 0);
-    const stockNote =
-      remaining > 0
-        ? `\n\nThis product still has ${remaining.toLocaleString()} ${inventoryUnitLabel(p.unit)} in stock.`
-        : "";
-    if (
-      !window.confirm(
-        `Delete “${p.name}” permanently?\n\nThis removes the product, all batches, and stock history. This cannot be undone.${stockNote}`
-      )
-    ) {
-      return;
-    }
+  async function confirmDeleteProduct() {
+    const p = deleteFor;
+    if (!p) return;
     setBusy(true);
     setErr("");
     try {
       await inventoryApi.remove(p._id);
+      setDeleteFor(null);
       if (historyFor?._id === p._id) {
         setHistoryFor(null);
         setMovements([]);
@@ -562,7 +555,7 @@ export default function Inventory() {
         ) : filtered.length === 0 ? (
           <p style={{ color: "var(--muted)", margin: 0 }}>No products match this filter.</p>
         ) : (
-          <div className="table-wrap">
+          <div className={`table-wrap${manageId ? " menu-open" : ""}`}>
             <table>
               <thead>
                 <tr>
@@ -605,76 +598,96 @@ export default function Inventory() {
                     <td>{sellPrice > 0 ? formatMoney(sellPrice) : "—"}</td>
                     <td>{sellValue > 0 ? formatMoney(sellValue) : "—"}</td>
                     <td>{p.nearestExpiry ? toInputDate(p.nearestExpiry) : "—"}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        style={{ padding: "0.25rem 0.5rem", marginRight: 4 }}
-                        onClick={() => {
-                          clearPanels();
-                          setStockInFor(p);
-                          setStockInForm(emptyStockIn());
-                        }}
+                    <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                      <div
+                        className="dropdown"
+                        ref={manageId === p._id ? manageMenuRef : null}
                       >
-                        Add stock
-                      </button>
-                      <button
-                        type="button"
-                        className="btn"
-                        style={{ padding: "0.25rem 0.5rem", marginRight: 4 }}
-                        onClick={() => {
-                          clearPanels();
-                          setSoldFor(p);
-                          setSoldQty("");
-                          setSoldDate(todayISO());
-                          setSoldNote("");
-                        }}
-                      >
-                        Record sold
-                      </button>
-                      <button
-                        type="button"
-                        className="btn"
-                        style={{ padding: "0.25rem 0.5rem", marginRight: 4 }}
-                        onClick={() => {
-                          clearPanels();
-                          setAdjustFor(p);
-                          setAdjustName(p.name || "");
-                          setAdjustQty("");
-                          setAdjustDate(todayISO());
-                          setAdjustNote("");
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ padding: "0.25rem 0.5rem", marginRight: 4 }}
-                        onClick={() => openHistory(p)}
-                      >
-                        History
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ padding: "0.25rem 0.5rem", marginRight: 4 }}
-                        disabled={busy}
-                        onClick={() => printStockCard(p)}
-                      >
-                        Print card
-                      </button>
-                      {isAdmin && (
                         <button
                           type="button"
-                          className="btn btn-ghost"
-                          style={{ padding: "0.25rem 0.5rem", color: "var(--danger, #b91c1c)" }}
-                          onClick={() => removeProduct(p)}
-                          disabled={busy}
+                          className="btn"
+                          style={{ padding: "0.25rem 0.65rem" }}
+                          onClick={() => {
+                            setPrintOpen(false);
+                            setManageId((id) => (id === p._id ? null : p._id));
+                          }}
                         >
-                          Delete
+                          Manage ▾
                         </button>
-                      )}
+                        {manageId === p._id && (
+                          <div className="dropdown-menu dropdown-menu-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManageId(null);
+                                clearPanels();
+                                setStockInFor(p);
+                                setStockInForm(emptyStockIn());
+                              }}
+                            >
+                              Add stock
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManageId(null);
+                                clearPanels();
+                                setSoldFor(p);
+                                setSoldQty("");
+                                setSoldDate(todayISO());
+                                setSoldNote("");
+                              }}
+                            >
+                              Record sold
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManageId(null);
+                                clearPanels();
+                                setAdjustFor(p);
+                                setAdjustName(p.name || "");
+                                setAdjustQty("");
+                                setAdjustDate(todayISO());
+                                setAdjustNote("");
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManageId(null);
+                                openHistory(p);
+                              }}
+                            >
+                              History
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setManageId(null);
+                                printStockCard(p);
+                              }}
+                            >
+                              Print card
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              disabled={busy}
+                              onClick={() => {
+                                setManageId(null);
+                                clearPanels();
+                                setDeleteFor(p);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                   );
@@ -928,6 +941,30 @@ export default function Inventory() {
               </table>
             </div>
           )}
+        </InventoryModal>
+      )}
+
+      {deleteFor && (
+        <InventoryModal open onClose={() => !busy && setDeleteFor(null)}>
+          <h2 style={{ fontSize: "1.05rem" }}>Delete product?</h2>
+          <p style={{ marginTop: 0 }}>
+            Delete <strong>{deleteFor.name}</strong> permanently?
+          </p>
+          <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
+            This removes the product, all batches, and stock history. This cannot be undone.
+            {Number(deleteFor.quantityRemaining ?? deleteFor.onHand ?? 0) > 0
+              ? ` It still has ${Number(deleteFor.quantityRemaining ?? 0).toLocaleString()} ${inventoryUnitLabel(deleteFor.unit)} in stock.`
+              : ""}
+          </p>
+          {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+            <button type="button" className="btn btn-danger" disabled={busy} onClick={confirmDeleteProduct}>
+              Yes, delete
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setDeleteFor(null)}>
+              Cancel
+            </button>
+          </div>
         </InventoryModal>
       )}
     </div>
