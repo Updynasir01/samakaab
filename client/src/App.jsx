@@ -14,6 +14,7 @@ import OpenInvoices from "./pages/OpenInvoices.jsx";
 import Debtors from "./pages/Debtors.jsx";
 import Inventory from "./pages/Inventory.jsx";
 import Account from "./pages/Account.jsx";
+import AccountDetail from "./pages/AccountDetail.jsx";
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="reports" element={<Reports />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="account" element={<Account />} />
+        <Route path="account/:id" element={<AccountDetail />} />
         <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

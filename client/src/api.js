@@ -222,15 +222,20 @@ export const invoicesApi = {
 };
 
 export const accountApi = {
-  list: (from = "", to = "") => {
+  people: (q = "") => api(`/account/people${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  createPerson: (body) => api("/account/people", { method: "POST", body: JSON.stringify(body) }),
+  getPerson: (id) => api(`/account/people/${id}`),
+  updatePerson: (id, body) => api(`/account/people/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  removePerson: (id) => api(`/account/people/${id}`, { method: "DELETE" }),
+  entries: (personId, from = "", to = "") => {
     const q = new URLSearchParams();
     if (from) q.set("from", from);
     if (to) q.set("to", to);
     const qs = q.toString();
-    return api(`/account${qs ? `?${qs}` : ""}`);
+    return api(`/account/people/${personId}/entries${qs ? `?${qs}` : ""}`);
   },
-  create: (body) => api("/account", { method: "POST", body: JSON.stringify(body) }),
-  remove: (id) => api(`/account/${id}`, { method: "DELETE" }),
+  create: (body) => api("/account/entries", { method: "POST", body: JSON.stringify(body) }),
+  remove: (id) => api(`/account/entries/${id}`, { method: "DELETE" }),
 };
 
 export const inventoryApi = {
