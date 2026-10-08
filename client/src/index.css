@@ -200,6 +200,143 @@ a.dashboard-debt-btn:hover {
   box-shadow: var(--shadow-md);
 }
 
+.call-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.call-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.75rem 0.85rem;
+  align-items: center;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.call-row.is-first {
+  border-color: #e7b4b4;
+  background: var(--danger-soft);
+}
+
+.call-rank {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: var(--surface);
+  color: var(--danger);
+  border: 1px solid #e7b4b4;
+}
+
+.call-name {
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.call-name:hover {
+  color: var(--accent);
+}
+
+.call-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.call-late {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.call-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: inherit;
+}
+
+.call-side {
+  text-align: right;
+}
+
+.call-amount {
+  font-weight: 700;
+  font-size: 1.05rem;
+  white-space: nowrap;
+}
+
+.call-actions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  margin-top: 0.35rem;
+}
+
+.call-actions .btn {
+  padding: 0.28rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.call-bills {
+  grid-column: 2 / -1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.call-bills li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0 0;
+  border-top: 1px dashed var(--border);
+  margin-top: 0.35rem;
+}
+
+@media (max-width: 640px) {
+  .call-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .call-side {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    text-align: left;
+  }
+
+  .call-actions {
+    margin-top: 0;
+  }
+
+  .call-bills {
+    grid-column: 1 / -1;
+  }
+}
+
 .grid {
   display: grid;
   gap: 1rem;
