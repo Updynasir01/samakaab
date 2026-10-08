@@ -4,6 +4,7 @@ import { invoicesApi } from "../api.js";
 import { formatMoney, enteredByLabel, invoiceLaterPayments, BALANCE_EPS } from "../util.js";
 
 const PAGE_SIZE = 50;
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 function yearFilterOptions() {
   const end = new Date().getFullYear() + 1;
@@ -46,6 +47,7 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
+  const [monthFilter, setMonthFilter] = useState("");
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageList = useMemo(() => buildPageList(page, totalPages), [page, totalPages]);
@@ -60,6 +62,7 @@ export default function Invoices() {
       ...(statusFilter !== "all" ? { status: statusFilter } : {}),
       ...(dateFilter ? { date: dateFilter } : {}),
       ...(yearFilter ? { year: Number(yearFilter) } : {}),
+      ...(monthFilter ? { month: Number(monthFilter) } : {}),
     };
     const data = await invoicesApi.list(params);
     const items = data?.items ?? (Array.isArray(data) ? data : []);
@@ -68,7 +71,7 @@ export default function Invoices() {
     setList(items);
     const maxPage = Math.max(1, Math.ceil(count / PAGE_SIZE));
     if (page > maxPage) setPage(maxPage);
-  }, [page, q, statusFilter, dateFilter, yearFilter]);
+  }, [page, q, statusFilter, dateFilter, yearFilter, monthFilter]);
 
   useEffect(() => {
     setLoading(true);
@@ -107,6 +110,7 @@ export default function Invoices() {
     setStatusFilter("all");
     setDateFilter("");
     setYearFilter("");
+    setMonthFilter("");
     setPage(1);
   }
 
@@ -157,6 +161,17 @@ export default function Invoices() {
               ))}
             </select>
           </div>
+          <div style={{ flex: "0 1 150px", minWidth: 130 }}>
+            <label htmlFor="inv-month">Month</label>
+            <select id="inv-month" value={monthFilter} onChange={onFilterChange(setMonthFilter)}>
+              <option value="">All months</option>
+              {MONTHS.map((name, i) => (
+                <option key={name} value={String(i + 1)}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div style={{ flex: "0 1 160px", minWidth: 150 }}>
             <label htmlFor="inv-date">Invoice date</label>
             <input id="inv-date" type="date" value={dateFilter} onChange={onFilterChange(setDateFilter)} />
@@ -170,7 +185,7 @@ export default function Invoices() {
               <option value="unpaid">Unpaid</option>
             </select>
           </div>
-          {(searchInput.trim() || statusFilter !== "all" || dateFilter || yearFilter) && (
+          {(searchInput.trim() || statusFilter !== "all" || dateFilter || yearFilter || monthFilter) && (
             <button type="button" className="btn btn-ghost" style={{ marginBottom: 2 }} onClick={clearFilters}>
               Clear
             </button>
@@ -179,8 +194,10 @@ export default function Invoices() {
         {!loading && total > 0 && (
           <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem", color: "var(--muted)" }}>
             Showing {rangeStart}–{rangeEnd} of {total} invoice{total === 1 ? "" : "s"}
-            {!yearFilter && !dateFilter ? " (all years)" : ""}
-            {yearFilter ? ` in ${yearFilter}` : ""}
+            {!yearFilter && !monthFilter && !dateFilter ? " (all years)" : ""}
+            {yearFilter && monthFilter ? ` in ${MONTHS[Number(monthFilter) - 1]} ${yearFilter}` : ""}
+            {yearFilter && !monthFilter ? ` in ${yearFilter}` : ""}
+            {!yearFilter && monthFilter ? ` in ${MONTHS[Number(monthFilter) - 1]}` : ""}
             {q.trim() ? ` matching “${q.trim()}”` : ""}
             {totalPages > 1 ? ` · Page ${page} of ${totalPages}` : ""}
           </p>
@@ -210,7 +227,7 @@ export default function Invoices() {
               ) : list.length === 0 ? (
                 <tr>
                   <td colSpan={9} style={{ color: "var(--muted)" }}>
-                    {q.trim() || statusFilter !== "all" || dateFilter
+                    {q.trim() || statusFilter !== "all" || dateFilter || yearFilter || monthFilter
                       ? "No invoices match your search."
                       : "No invoices yet."}
                   </td>

@@ -8,7 +8,7 @@ import Customer from "../models/Customer.js";
 import { authRequired, adminOnly, actorUsername } from "../middleware/auth.js";
 import { excludedPaymentNoteFilter, BALANCE_EPS } from "../services/balance.js";
 import { syncCustomersWithOpenDebt, syncCustomerInvoices } from "../services/invoiceSync.js";
-import { matchCalendarYear } from "../services/reportDates.js";
+import { matchCalendarMonth, matchCalendarYear, matchCalendarYearMonth } from "../services/reportDates.js";
 
 const router = Router();
 router.use(authRequired);
@@ -77,6 +77,7 @@ router.get(
   query("status").optional().isIn(["all", "paid", "partial", "unpaid"]),
   query("date").optional().isISO8601(),
   query("year").optional().isInt({ min: 2000, max: 2100 }),
+  query("month").optional().isInt({ min: 1, max: 12 }),
   async (req, res) => {
     await syncCustomersWithOpenDebt();
     const limit = Number(req.query.limit) || 50;
@@ -101,7 +102,7 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function buildInvoiceListFilter({ q, status, date, year } = {}) {
+async function buildInvoiceListFilter({ q, status, date, year, month } = {}) {
   const clauses = [];
   if (status && status !== "all") clauses.push({ paymentStatus: status });
   if (date) {
@@ -113,9 +114,13 @@ async function buildInvoiceListFilter({ q, status, date, year } = {}) {
       clauses.push({ date: { $gte: start, $lte: end } });
     }
   }
-  if (year) {
-    clauses.push(matchCalendarYear("$date", Number(year)));
-  }
+  const yearNum = Number(year);
+  const monthNum = Number(month);
+  const hasYear = Number.isInteger(yearNum) && yearNum >= 2000;
+  const hasMonth = Number.isInteger(monthNum) && monthNum >= 1 && monthNum <= 12;
+  if (hasYear && hasMonth) clauses.push(matchCalendarYearMonth("$date", yearNum, monthNum));
+  else if (hasYear) clauses.push(matchCalendarYear("$date", yearNum));
+  else if (hasMonth) clauses.push(matchCalendarMonth("$date", monthNum));
   const needle = String(q || "").trim();
   if (needle) {
     const rx = new RegExp(escapeRegex(needle), "i");

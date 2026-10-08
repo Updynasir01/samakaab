@@ -11,6 +11,13 @@ export function matchCalendarYear(fieldPath, year) {
   };
 }
 
+/** Match documents whose date field falls in this calendar month, any year. */
+export function matchCalendarMonth(fieldPath, month) {
+  return {
+    $expr: { $eq: [{ $month: { date: fieldPath, timezone: tz() } }, month] },
+  };
+}
+
 /** Match documents whose date field falls in this calendar month (business timezone). */
 export function matchCalendarYearMonth(fieldPath, year, month) {
   return {
