@@ -12,6 +12,7 @@ import {
   INVENTORY_STORES,
   printInventoryHtml,
 } from "../inventoryExport.js";
+import { downloadInventoryTemplateXlsx, parseInventoryFile } from "../parseInventorySpreadsheet.js";
 
 const UNITS = [
   { value: "bottle", label: "Bottle" },
@@ -33,6 +34,20 @@ function emptyStockIn() {
     receivedAt: todayISO(),
     note: "",
   };
+}
+
+function productMatchKey(name, store) {
+  return `${String(store || "").trim().toLowerCase()}|${String(name || "").trim().toLowerCase().replace(/\s+/g, " ")}`;
+}
+
+function importRowStatus(line, index, lines, catalog, store) {
+  const key = productMatchKey(line.description, store);
+  const earlier = lines.slice(0, index).some((row) => productMatchKey(row.description, store) === key);
+  if (earlier) return "Adds to an earlier row";
+  const existing = (catalog || []).find((p) => productMatchKey(p.name, p.store) === key);
+  if (!existing) return "New product";
+  if (existing.unit !== line.unit) return `Already in ${store} · stock uses ${inventoryUnitLabel(existing.unit)}`;
+  return "Add to existing";
 }
 
 function InventoryModal({ open, onClose, wide, children }) {
@@ -102,6 +117,11 @@ export default function Inventory() {
   const printMenuRef = useRef(null);
   const [deleteFor, setDeleteFor] = useState(null);
   const [manageId, setManageId] = useState(null);
+  const [importStore, setImportStore] = useState("");
+  const [importDate, setImportDate] = useState(todayISO());
+  const [importLines, setImportLines] = useState(null);
+  const [importHint, setImportHint] = useState("");
+  const [importCatalog, setImportCatalog] = useState([]);
   const manageMenuRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -340,6 +360,120 @@ export default function Inventory() {
     downloadInventoryCsv(list, `inventory-${suffix}-${todayISO()}`);
   }
 
+  async function onUploadStock(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setErr("");
+    setImportHint("");
+    if (!importStore) {
+      setErr("Select a store before uploading. Every row in the file goes into that store.");
+      return;
+    }
+    try {
+      const [{ lines, warnings, skippedRows }, catalog] = await Promise.all([
+        parseInventoryFile(file),
+        inventoryApi.list(""),
+      ]);
+      setImportCatalog(Array.isArray(catalog) ? catalog : []);
+      setImportLines(
+        lines.map((line) => ({
+          id: crypto.randomUUID(),
+          description: line.description,
+          quantity: String(line.quantity),
+          unit: line.unit,
+          unitCost: String(line.unitCost),
+        }))
+      );
+      const parts = [`Loaded ${lines.length} row(s) for ${importStore}.`];
+      if (warnings.length) parts.push(warnings.slice(0, 4).join(" "));
+      if (warnings.length > 4) parts.push(`…and ${warnings.length - 4} more warnings.`);
+      if (skippedRows) parts.push(`${skippedRows} row(s) skipped.`);
+      setImportHint(parts.join(" "));
+    } catch (x) {
+      setImportLines(null);
+      setErr(x.message || "Could not read file");
+    }
+  }
+
+  function updateImportLine(id, patch) {
+    setImportLines((rows) => (rows || []).map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  }
+
+  async function saveImport() {
+    if (!importStore || !importLines?.length) return;
+    const receivedAt = importDate ? new Date(importDate).toISOString() : new Date().toISOString();
+    if (Number.isNaN(new Date(receivedAt).getTime())) {
+      setErr("Enter a valid received date.");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    try {
+      const catalog = await inventoryApi.list("");
+      const byKey = new Map(
+        (Array.isArray(catalog) ? catalog : []).map((p) => [productMatchKey(p.name, p.store), p])
+      );
+      const failed = [];
+      let saved = 0;
+      for (const line of importLines) {
+        const name = line.description.trim();
+        const quantity = Number(line.quantity);
+        const unitCost = Number(line.unitCost) || 0;
+        if (!name || !Number.isFinite(quantity) || quantity <= 0) {
+          failed.push({ id: line.id, message: `${name || "Row"}: quantity must be greater than 0.` });
+          continue;
+        }
+        try {
+          const key = productMatchKey(name, importStore);
+          let product = byKey.get(key);
+          if (!product) {
+            product = await inventoryApi.create({
+              name,
+              unit: line.unit,
+              store: importStore,
+              sellPrice: 0,
+              lowStockThreshold: 10,
+              note: "",
+            });
+            byKey.set(key, product);
+          }
+          await inventoryApi.stockIn(product._id, {
+            quantity,
+            unitCost,
+            store: importStore,
+            note: "Excel upload",
+            receivedAt,
+          });
+          saved += 1;
+        } catch (e) {
+          failed.push({ id: line.id, message: `${name}: ${e.message}` });
+        }
+      }
+      await load();
+      if (failed.length) {
+        const failedIds = new Set(failed.map((f) => f.id));
+        setImportLines((rows) => (rows || []).filter((row) => failedIds.has(row.id)));
+        setImportCatalog([...byKey.values()]);
+        setImportHint("");
+        setErr(
+          `${saved} row(s) saved into ${importStore}. ${failed.length} still need a fix: ${failed
+            .slice(0, 3)
+            .map((f) => f.message)
+            .join(" ")}`
+        );
+      } else {
+        setImportLines(null);
+        setImportCatalog([]);
+        setImportHint(`Saved ${saved} row(s) into ${importStore}.`);
+      }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function confirmDeleteProduct() {
     const p = deleteFor;
     if (!p) return;
@@ -545,6 +679,137 @@ export default function Inventory() {
           </button>
         </form>
       )}
+
+      <div className="card" style={{ marginBottom: "1rem" }}>
+        <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Upload stock</h2>
+        <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+          Excel (.xlsx, .xls) or CSV, same columns as an invoice: DESCRIPTION, QUANTITY, UNIT, PRICE. Pick the store first.
+          Every row is stock received into that store.
+        </p>
+        <div className="grid grid-2" style={{ gap: "0.75rem", marginBottom: "0.75rem" }}>
+          <div>
+            <label htmlFor="import-store">Store</label>
+            <select id="import-store" value={importStore} onChange={(e) => setImportStore(e.target.value)}>
+              <option value="">Select store</option>
+              {INVENTORY_STORES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="import-date">Received date</label>
+            <input id="import-date" type="date" value={importDate} onChange={(e) => setImportDate(e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+          <label className="btn" style={{ margin: 0, cursor: "pointer" }}>
+            Upload spreadsheet
+            <input type="file" style={{ display: "none" }} onChange={onUploadStock} />
+          </label>
+          <button type="button" className="btn" onClick={downloadInventoryTemplateXlsx}>
+            Download template
+          </button>
+        </div>
+        <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.5rem 0 0" }}>
+          Units: bottle, box, kg, piece. BOX and CTN count as box. In the file picker, choose <strong>All files</strong> if
+          the spreadsheet does not appear.
+        </p>
+        {importHint && (
+          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.75rem 0 0" }}>{importHint}</p>
+        )}
+        {importLines && (
+          <div style={{ marginTop: "0.85rem" }}>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Description</th>
+                    <th style={{ width: 88 }}>Qty</th>
+                    <th style={{ width: 110 }}>Unit</th>
+                    <th style={{ width: 110 }}>Cost</th>
+                    <th>In {importStore}</th>
+                    <th style={{ width: 60 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {importLines.map((line, index) => (
+                    <tr key={line.id}>
+                      <td>
+                        <input
+                          value={line.description}
+                          onChange={(e) => updateImportLine(line.id, { description: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={line.quantity}
+                          onChange={(e) => updateImportLine(line.id, { quantity: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <select value={line.unit} onChange={(e) => updateImportLine(line.id, { unit: e.target.value })}>
+                          {UNITS.map((u) => (
+                            <option key={u.value} value={u.value}>
+                              {u.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.unitCost}
+                          onChange={(e) => updateImportLine(line.id, { unitCost: e.target.value })}
+                        />
+                      </td>
+                      <td style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                        {importRowStatus(line, index, importLines, importCatalog, importStore)}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={() =>
+                            setImportLines((rows) => {
+                              const next = (rows || []).filter((row) => row.id !== line.id);
+                              return next.length ? next : null;
+                            })
+                          }
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+              <button type="button" className="btn btn-primary" disabled={busy || !importStore} onClick={saveImport}>
+                {busy ? "Saving…" : `Save into ${importStore || "store"}`}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() => {
+                  setImportLines(null);
+                  setImportHint("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="card">
         <div
